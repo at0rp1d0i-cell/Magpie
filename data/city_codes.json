@@ -1,0 +1,46 @@
+{
+    "北京": {
+        "train_code": "BJP",
+        "flight_code": "BJS"
+    },
+    "上海": {
+        "train_code": "SHH",
+        "flight_code": "SHA"
+    },
+    "广州": {
+        "train_code": "GZQ",
+        "flight_code": "CAN"
+    },
+    "深圳": {
+        "train_code": "SZQ",
+        "flight_code": "SZX"
+    },
+    "杭州": {
+        "train_code": "HZH",
+        "flight_code": "HGH"
+    },
+    "成都": {
+        "train_code": "CDW",
+        "flight_code": "CTU"
+    },
+    "南昌": {
+        "train_code": "NCG",
+        "flight_code": "KHN"
+    },
+    "武汉": {
+        "train_code": "WHN",
+        "flight_code": "WUH"
+    },
+    "南京": {
+        "train_code": "NJH",
+        "flight_code": "NKG"
+    },
+    "重庆": {
+        "train_code": "CQW",
+        "flight_code": "CKG"
+    },
+    "西安": {
+        "train_code": "XAY",
+        "flight_code": "XIY"
+    }
+}

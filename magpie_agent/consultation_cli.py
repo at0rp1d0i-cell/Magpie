@@ -20,6 +20,14 @@ if not DEEPSEEK_API_KEY:
 # Dynamically inject current date to prevent LLM time hallucination
 CURRENT_DATE = datetime.now().strftime('%Y-%m-%d')
 OUTPUT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'user_config.json')
+CITY_DICT_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'city_codes.json')
+
+# Load the local deterministic dictionary to prevent LLM hallucination of IATA/telecodes
+try:
+    with open(CITY_DICT_PATH, 'r', encoding='utf-8') as f:
+        CITY_DICT_STR = f.read()
+except FileNotFoundError:
+    CITY_DICT_STR = "{}"
 
 SYSTEM_PROMPT = f"""
 你现在是 Magpie (鹊桥 Agent) 的“首席旅行规划大脑 (The Consultation Brain)”。
@@ -38,8 +46,13 @@ SYSTEM_PROMPT = f"""
 3. 如果信息搜集不足，继续自然地追问缺失部分。不要急于输出 JSON。
 4. 当你认为这四大维度的意图已经完全清晰且收敛时，在你的回复最后，必须附带一个标准的 JSON 格式块，并在外层包裹 ```json 和 ```。
    
+【电报码参照字典】
+为了防止你对国内高铁拼音码和机场三字码产生幻觉，请**严格查阅**以下本地配置表提取对应站点的机读代码：
+{CITY_DICT_STR}
+如果用户提供的城市不在本字典内，你可以发挥你的常识；如果在字典内，则**必须**使用字典提供的 train_code 和 flight_code。
+
 【JSON Schema 规范】
-当条件成熟时，生成的配置必须绝对遵循以下格式（包含你在百科知识中检索到的标准机场IATA三字码和12306拼音电报码）：
+当条件成熟时，生成的配置必须绝对遵循以下格式（包含引用的机场IATA三字码和12306拼音电报码）：
 ```json
 {{
   "persona": "leisure" 或 "business",
