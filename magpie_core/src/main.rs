@@ -1,116 +1,146 @@
-use dotenv::dotenv;
-use reqwest::{Client, IntoUrl};
+use chrono::Local;
+use rusqlite::{params, Connection, Result as SqliteResult};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::error::Error;
+use std::path::PathBuf;
+use tokio::process::Command;
+use tokio::time::{sleep, Duration};
 
-#[derive(Deserialize, Debug)]
-struct TokenResponse {
-    access_token: String,
-    expires_in: u64,
+#[derive(Debug, Deserialize, Serialize)]
+struct TrainTicket {
+    train_code: String,
+    booking_status: String,
+    start_time: String,
+    arrive_time: String,
+    duration: String,
+    second_class: String,
+    first_class: String,
+    business_class: String,
+    no_seat: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct FlightOffersResponse {
-    data: Vec<serde_json::Value>,
+fn init_db(db_path: &PathBuf) -> SqliteResult<Connection> {
+    let conn = Connection::open(db_path)?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS train_tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fetch_time TEXT NOT NULL,
+            train_date TEXT NOT NULL,
+            from_station TEXT NOT NULL,
+            to_station TEXT NOT NULL,
+            train_code TEXT NOT NULL,
+            booking_status TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            arrive_time TEXT NOT NULL,
+            duration TEXT NOT NULL,
+            second_class TEXT NOT NULL,
+            first_class TEXT NOT NULL,
+            business_class TEXT NOT NULL,
+            no_seat TEXT NOT NULL
+        )",
+        [],
+    )?;
+    Ok(conn)
 }
 
-async fn get_token(client: &Client, client_id: &str, client_secret: &str) -> Result<String, Box<dyn Error>> {
-    let url = "https://test.api.amadeus.com/v1/security/oauth2/token";
-    let params = [
-        ("grant_type", "client_credentials"),
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-    ];
+async fn fetch_tickets(date: &str, from: &str, to: &str) -> Result<Vec<TrainTicket>, Box<dyn Error>> {
+    let mut agent_dir = env::current_dir()?;
+    agent_dir.pop();
+    agent_dir.push("magpie_agent");
 
-    let res: TokenResponse = client
-        .post(url)
-        .form(&params)
-        .send()
-        .await?
-        .json()
+    let output = Command::new("uv")
+        .arg("run")
+        .arg("train_monitor.py")
+        .arg("--date")
+        .arg(date)
+        .arg("--from_station")
+        .arg(from)
+        .arg("--to_station")
+        .arg(to)
+        .current_dir(&agent_dir)
+        .output()
         .await?;
 
-    Ok(res.access_token)
-}
-
-async fn search_flights(client: &Client, token: &str, origin: &str, dest: &str, date: &str) -> Result<(), Box<dyn Error>> {
-    let url = format!(
-        "https://test.api.amadeus.com/v2/shopping/flight-offers?originLocationCode={}&destinationLocationCode={}&departureDate={}&adults=1&nonStop=false&max=20",
-        origin, dest, date
-    );
-
-    let res: FlightOffersResponse = client
-        .get(&url)
-        .bearer_auth(token)
-        .send()
-        .await?
-        .json()
-        .await?;
-
-    println!("✅ 成功获取到 {}->{} ({}) 的航班报价，共有 {} 条结果", origin, dest, date, res.data.len());
-    
-    println!("{:<10} | {:<12} | {:<15} | {:<10} | {:<10}", "航司及航班", "起飞时间", "总价(EUR)", "预估(CNY@7.55)", "舱位级别");
-    println!("-------------------------------------------------------------------------");
-
-    for offer in res.data.iter() {
-        let itins = offer["itineraries"].as_array().unwrap();
-        let segments = itins[0]["segments"].as_array().unwrap();
-        let first_seg = &segments[0];
-        
-        let carrier = first_seg["carrierCode"].as_str().unwrap_or("??");
-        let number = first_seg["number"].as_str().unwrap_or("??");
-        let departure = first_seg["departure"]["at"].as_str().unwrap_or("??");
-        let departs_time = departure.split('T').last().unwrap_or(departure);
-        
-        let price_str = offer["price"]["total"].as_str().unwrap_or("0");
-        let price: f64 = price_str.parse().unwrap_or(0.0);
-        let cny = price * 7.55;
-        
-        let mut cabin_info = String::new();
-        if let Some(pricings) = offer["travelerPricings"].as_array() {
-            if let Some(fares) = pricings[0]["fareDetailsBySegment"].as_array() {
-                let cabin = fares[0]["cabin"].as_str().unwrap_or("?");
-                let class = fares[0]["class"].as_str().unwrap_or("?");
-                cabin_info = format!("{}({})", cabin, class);
-            }
+    if !output.stderr.is_empty() {
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        for line in stderr_str.lines() {
+            eprintln!("{}", line);
         }
-
-        println!("{:<13} | {:<12} | €{:<14.2} | ¥{:<13.2} | {}", 
-            format!("{}{}", carrier, number), 
-            departs_time, 
-            price,
-            cny,
-            cabin_info
-        );
     }
 
-    Ok(())
+    if !output.status.success() {
+        return Err(format!("Python script failed with status: {}", output.status).into());
+    }
+
+    let stdout_str = String::from_utf8(output.stdout)?;
+    // output usually contains JSON lines, let's just parse it directly
+    if stdout_str.trim().is_empty() {
+         return Ok(vec![]);
+    }
+    
+    let tickets: Vec<TrainTicket> = serde_json::from_str(&stdout_str)?;
+    Ok(tickets)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    dotenv().ok();
+    println!("🐦 Magpie Core - High-Frequency Dispatcher Started");
 
-    let client_id = env::var("AMADEUS_CLIENT_ID")
-        .expect("⚠️ 环境变量中未找到 AMADEUS_CLIENT_ID");
-    let client_secret = env::var("AMADEUS_CLIENT_SECRET")
-        .expect("⚠️ 环境变量中未找到 AMADEUS_CLIENT_SECRET");
+    let mut db_path = env::current_dir()?;
+    db_path.pop(); // Go up to /Magpie
+    let data_dir = db_path.join("data");
+    std::fs::create_dir_all(&data_dir)?;
+    let db_file = data_dir.join("tickets.db");
 
-    let client = Client::new();
+    let conn = init_db(&db_file)?;
+    println!("📦 Database initialized at: {:?}", db_file);
 
-    println!("⏳ 正在向 Amadeus 请求 OAuth_Token...");
-    let token = get_token(&client, &client_id, &client_secret).await?;
-    println!("🔑 获取 Token 成功！");
+    let date = "2026-03-01";
+    let from = "BJP"; // Beijing
+    let to = "NCG";   // Nanchang
 
-    // Test a flight next week (e.g., currently Feb 2026, let's search for Mar 01)
-    let origin = "BJS"; // Beijing (Any airport)
-    let dest = "KHN"; // Nanchang
-    // TODO: dynamically get date
-    let date = "2026-03-01"; 
+    let fetch_interval = Duration::from_secs(60); // Demo: every 60s
+    let mut cycle = 1;
 
-    println!("⏳ 正在查询航班报价 (测试参数: {} 到 {}, 日期: {})...", origin, dest, date);
-    search_flights(&client, &token, origin, dest, date).await?;
+    // We only loop a few times for this MVP testing phase, but in production this is loop {}
+    loop {
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        println!("\n[{}] ⏳ Cycle {}: Calling Python Agent for {} -> {} on {}...", now, cycle, from, to, date);
+        
+        match fetch_tickets(date, from, to).await {
+            Ok(tickets) => {
+                let mut inserted = 0;
+                for t in &tickets {
+                    // Filter out unbookable trains to save DB space
+                    if t.booking_status == "Y" {
+                        conn.execute(
+                            "INSERT INTO train_tickets (fetch_time, train_date, from_station, to_station, train_code, booking_status, start_time, arrive_time, duration, second_class, first_class, business_class, no_seat)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                            params![
+                                now, date, from, to, 
+                                t.train_code, t.booking_status, t.start_time, t.arrive_time, 
+                                t.duration, t.second_class, t.first_class, t.business_class, t.no_seat
+                            ],
+                        )?;
+                        inserted += 1;
+                    }
+                }
+                println!("✅ Cycle {} Complete: Received {} trains, inserted {} valid records to SQLite.", cycle, tickets.len(), inserted);
+            },
+            Err(e) => {
+                eprintln!("❌ Cycle {} Failed: {}", cycle, e);
+            }
+        }
+
+        println!("💤 Sleeping for {} seconds...", fetch_interval.as_secs());
+        sleep(fetch_interval).await;
+        cycle += 1;
+        
+        // Break after 1 cycle for demo purposes, so the process doesn't hang in CI/sandbox
+        // Remove this break for the real background daemon.
+        break; 
+    }
 
     Ok(())
 }
