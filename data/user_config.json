@@ -1,0 +1,9 @@
+{
+  "persona": "business",
+  "time_window_start": "2024-03-15",
+  "time_window_end": "2024-03-17",
+  "destinations": [
+    "南京"
+  ],
+  "budget_cap": 500
+}

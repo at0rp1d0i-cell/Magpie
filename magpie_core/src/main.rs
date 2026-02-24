@@ -83,6 +83,22 @@ async fn fetch_tickets(date: &str, from: &str, to: &str) -> Result<Vec<TrainTick
     Ok(tickets)
 }
 
+#[derive(Debug, Deserialize)]
+struct UserConfig {
+    persona: String,
+    time_window_start: String,
+    #[allow(dead_code)]
+    time_window_end: String,
+    destinations: Vec<String>,
+    budget_cap: i32,
+}
+
+fn load_user_config(path: &PathBuf) -> Result<UserConfig, Box<dyn Error>> {
+    let content = std::fs::read_to_string(path)?;
+    let config: UserConfig = serde_json::from_str(&content)?;
+    Ok(config)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("🐦 Magpie Core - High-Frequency Dispatcher Started");
@@ -92,21 +108,48 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let data_dir = db_path.join("data");
     std::fs::create_dir_all(&data_dir)?;
     let db_file = data_dir.join("tickets.db");
+    let config_file = data_dir.join("user_config.json");
 
     let conn = init_db(&db_file)?;
     println!("📦 Database initialized at: {:?}", db_file);
 
-    let date = "2026-03-01";
-    let from = "BJP"; // Beijing
-    let to = "NCG";   // Nanchang
-
-    let fetch_interval = Duration::from_secs(60); // Demo: every 60s
-    let mut cycle = 1;
-
     // We only loop a few times for this MVP testing phase, but in production this is loop {}
+    #[allow(clippy::never_loop)]
     loop {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        println!("\n[{}] ⏳ Cycle {}: Calling Python Agent for {} -> {} on {}...", now, cycle, from, to, date);
+        
+        // 动态热重载用户配置单 (Hot Reload Strategy)
+        let config = match load_user_config(&config_file) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[Warning] Failed to load config from {:?}: {}. Using default fallback.", config_file, e);
+                // 默认提供一个安全的防御性配置
+                UserConfig {
+                    persona: "leisure".to_string(),
+                    time_window_start: Local::now().format("%Y-%m-%d").to_string(),
+                    time_window_end: Local::now().format("%Y-%m-%d").to_string(),
+                    destinations: vec!["NCG".to_string()],
+                    budget_cap: 9999,
+                }
+            }
+        };
+
+        // TODO: Map natural Chinese city names from DeepSeek to Railway Codes (e.g. 南京 -> NJH)
+        // MVP directly uses the first destination name for station query.
+        let from = "BJP"; // Beijing
+        let to = &config.destinations[0];   // Naive mapping
+        let date = &config.time_window_start; // Only watching start date in MVP V1
+
+        // 意图引擎核心：根据 LLM 打的画像标签动态改变爬取频率
+        let fetch_interval = if config.persona.to_lowercase() == "business" {
+            println!("\n[Intent Strategy] 🧑‍💼 Persona: Business -> Active polling every 60s.");
+            Duration::from_secs(60)
+        } else {
+            println!("\n[Intent Strategy] 🍹 Persona: Leisure -> Winter mode polling every 10800s (3 hours).");
+            Duration::from_secs(10800)
+        };
+
+        println!("[{}] ⏳ Cycle: Calling Python Agent for {} -> {} on {} with Budget Cap ￥{}...", now, from, to, date, config.budget_cap);
         
         match fetch_tickets(date, from, to).await {
             Ok(tickets) => {
@@ -126,16 +169,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         inserted += 1;
                     }
                 }
-                println!("✅ Cycle {} Complete: Received {} trains, inserted {} valid records to SQLite.", cycle, tickets.len(), inserted);
+                println!("✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.", tickets.len(), inserted);
             },
             Err(e) => {
-                eprintln!("❌ Cycle {} Failed: {}", cycle, e);
+                eprintln!("❌ Cycle Failed: {}", e);
             }
         }
 
-        println!("💤 Sleeping for {} seconds...", fetch_interval.as_secs());
+        println!("💤 Sleeping for {} seconds...\n", fetch_interval.as_secs());
         sleep(fetch_interval).await;
-        cycle += 1;
         
         // Break after 1 cycle for demo purposes, so the process doesn't hang in CI/sandbox
         // Remove this break for the real background daemon.

@@ -73,10 +73,42 @@ def send_pushplus_message(content: str):
     except Exception as e:
         sys.stderr.write(f"[Error] PushPlus request failed: {e}\n")
 
+def get_budget_cap():
+    """Reads budget_cap from generated user_config.json if available"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'user_config.json')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            return config.get("budget_cap", 9999)
+    except FileNotFoundError:
+        return 9999
+    except json.JSONDecodeError:
+        return 9999
+
 def run_decision_engine(tickets):
     if not tickets:
         print("[Info] No active tickets found in the database for the last 15 minutes.")
         return
+
+    budget_cap = get_budget_cap()
+    
+    # Pre-filter tickets exceeding budget_cap to avoid wasting LLM tokens and causing invalid pushes
+    valid_tickets = []
+    for t in tickets:
+        try:
+            price_str = t.get("second_class", "")
+            if price_str.startswith("￥"):
+                price = float(price_str[1:])
+                if price <= budget_cap:
+                    valid_tickets.append(t)
+        except ValueError:
+            valid_tickets.append(t) # include ones we can't parse just in case
+            
+    if not valid_tickets:
+        print(f"🔕 拦截机制触发: 监控到 {len(tickets)} 趟列车，但没有符合心理预算 (≤￥{budget_cap}) 的可行方案，拦截推送。")
+        return
+        
+    print(f"✅ 从 {len(tickets)} 趟列车中筛出 {len(valid_tickets)} 趟低于 ￥{budget_cap} 预算的车次送往 LLM 决策...")
 
     # Construct the state constraint
     # We pretend the user profile is "A commuter wanting to maximize weekend experience"
