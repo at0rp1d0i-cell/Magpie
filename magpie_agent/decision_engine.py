@@ -35,8 +35,8 @@ def fetch_latest_tickets():
     time_threshold = (datetime.now() - timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S')
     
     query = """
-        SELECT train_date, from_station, to_station, train_code, start_time, arrive_time, duration, second_class 
-        FROM train_tickets 
+        SELECT travel_date, from_station_name, to_station_name, vehicle_code, vehicle_type, start_time, arrive_time, duration, price_info 
+        FROM omni_tickets 
         WHERE fetch_time >= ?
         ORDER BY start_time ASC
     """
@@ -96,35 +96,40 @@ def run_decision_engine(tickets):
     valid_tickets = []
     for t in tickets:
         try:
-            price_str = t.get("second_class", "")
-            if price_str.startswith("￥"):
-                price = float(price_str[1:])
-                if price <= budget_cap:
+            price_str = t.get("price_info", "")
+            # Price info might be complex now: '二等座:￥100|一等座:￥200|无座:￥100' or '￥500' for flights
+            # For interception, we attempt to find any price <= budget_cap
+            import re
+            prices = re.findall(r'￥(\d+(?:\.\d+)?)', price_str)
+            if prices:
+                if any(float(p) <= budget_cap for p in prices):
                     valid_tickets.append(t)
+            else:
+                valid_tickets.append(t) # include ones we can't parse
         except ValueError:
             valid_tickets.append(t) # include ones we can't parse just in case
             
     if not valid_tickets:
-        print(f"🔕 拦截机制触发: 监控到 {len(tickets)} 趟列车，但没有符合心理预算 (≤￥{budget_cap}) 的可行方案，拦截推送。")
+        print(f"🔕 拦截机制触发: 监控到 {len(tickets)} 条空铁数据，但没有符合心理预算 (≤￥{budget_cap}) 的可行方案，拦截推送。")
         return
         
-    print(f"✅ 从 {len(tickets)} 趟列车中筛出 {len(valid_tickets)} 趟低于 ￥{budget_cap} 预算的车次送往 LLM 决策...")
+    print(f"✅ 从 {len(tickets)} 条数据中筛出 {len(valid_tickets)} 条低于 ￥{budget_cap} 预算的三维时空数据送往 LLM 决策...")
 
     # Construct the state constraint
     # We pretend the user profile is "A commuter wanting to maximize weekend experience"
     
     system_prompt = """
     你是一个名叫 Magpie (鹊桥 Agent) 的高级差旅管家。你的职责不仅仅是比价，更重要的是提供极其专业且富含情绪价值的出行决策建议。
-    目前你的用户是一位异地恋的高净值极客，他计划跨城过周末。你收到了下面最新的高铁余票监控数组快照。
+    目前你的用户是一位异地恋的高净值极客，他计划跨城过周末。你收到了下面最新的包含【高铁、飞机】的双轨余票监控快照。
 
     【任务要求】
-    1. 不要只是干巴巴地罗列数据，你要像一个真人秘书一样，用一两句话汇报当前的余票紧缺度或者低价情况。
-    2. 挑选出 1~2 趟“完美”的车次（比如出发时间不至于太早/太赶，到达时间刚才适合吃个晚饭的车次），说明推荐理由。
-    3. 加入一点人情味和情绪价值，比如“这班车可以在日落时分抵达，刚好赶上共进晚餐”。
-    4. 输出内容要精练，适合通过微信/飞书推送到用户手机（用 Markdown 格式，并且适当使用 Emoji，字数控制在 200 字左右）。
+    1. 你需要进行“空铁联合决策”，像一个真人秘书一样汇报当前的余票紧缺度或者低价情况。
+    2. 如果高铁和飞机同在一个时间段，对比它们的时间成本和金钱成本（例如：去大兴机场可能更远，高铁去虹桥可能更方便），选出最“完美”的车次/航班，并说明理由。
+    3. 加入一点人情味和情绪价值，比如“这班不仅便宜，还可以在日落时分抵达，刚好赶上共进晚餐”。
+    4. 输出内容要精练，适合通过微信推送到用户手机（用 Markdown 格式，并且适当使用 Emoji，字数控制在 250 字左右）。
     """
 
-    user_prompt = f"这是最新的高铁余票快照（JSON格式）：\n{json.dumps(tickets, ensure_ascii=False, indent=2)}\n\n请给出你的决策推送报文！"
+    user_prompt = f"这是最新的全网交通快照（JSON格式，包含 price_info 与 vehicle_type）：\n{json.dumps(tickets, ensure_ascii=False, indent=2)}\n\n请给出你的决策推送报文！"
 
     client = OpenAI(
         api_key=DEEPSEEK_API_KEY,

@@ -89,7 +89,7 @@ class MagpieLightweightTrainMonitor:
                 try:
                     payload = response.json()
                     if "data" in payload and "result" in payload["data"]:
-                        return self._decode_pipe_serialization(payload["data"]["result"])
+                        return self._decode_pipe_serialization(payload["data"]["result"], from_telecode, to_telecode)
                 except ValueError:
                     log(f"[Warning] JSON Parsing failed, response dump: {response.text[:200]}")
             else:
@@ -99,21 +99,21 @@ class MagpieLightweightTrainMonitor:
             log(f"[Error] 查询异常: {e}")
             return []
 
-    def _decode_pipe_serialization(self, raw_result_array: List[str]) -> List:
+    def _decode_pipe_serialization(self, raw_result_array: List[str], from_telecode: str, to_telecode: str) -> List:
         parsed_inventory = []
         for raw_train_str in raw_result_array:
             fields = raw_train_str.split('|')
             if len(fields) >= 32:
                 train_node = {
-                    "train_code": fields[3],
+                    "vehicle_code": fields[3],
+                    "vehicle_type": "train",
                     "booking_status": fields[11], # 'Y' 标识此车次处于售票期
                     "start_time": fields[8],
                     "arrive_time": fields[9],
                     "duration": fields[10],
-                    "second_class": fields[30],
-                    "first_class": fields[31],
-                    "business_class": fields[32],
-                    "no_seat": fields[26]
+                    "price_info": f"二等座:{fields[30]}|一等座:{fields[31]}|无座:{fields[26]}",
+                    "from_station_name": from_telecode, # Real name requires dictionary map, simplify for MVP
+                    "to_station_name": to_telecode
                 }
                 parsed_inventory.append(train_node)
         return parsed_inventory

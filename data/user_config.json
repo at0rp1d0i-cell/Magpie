@@ -1,9 +1,18 @@
 {
-  "persona": "business",
-  "time_window_start": "2024-03-15",
-  "time_window_end": "2024-03-17",
+  "persona": "leisure",
+  "time_window_start": "2026-03-02",
+  "time_window_end": "2026-03-08",
+  "departure": {
+    "city": "杭州",
+    "train_code": "HZH",
+    "flight_code": "HGH"
+  },
   "destinations": [
-    "南京"
+    {
+      "city": "成都",
+      "train_code": "CDW",
+      "flight_code": "CTU"
+    }
   ],
-  "budget_cap": 500
+  "budget_cap": 1500
 }
