@@ -30,3 +30,9 @@ regex = "1.12.3"
 dotenv = "0.15.0"
 dotenvy = "0.15.7"
 
+[profile.release]
+panic = "abort" # 取消 panic 回溯，缩小体积并增加分析难度
+codegen-units = 1 # 最强优化
+lto = true # 跨 Crate 链接优化，提升代码运行速度的同时高度混杂结构
+opt-level = "s" # 优先压缩体积
+strip = true # 剔除所有的 debug 符号，防御普通的反编译调试
