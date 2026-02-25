@@ -53,6 +53,8 @@ export default function SettingsPage() {
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{status: 'idle' | 'success' | 'error', msg: string}>({status: 'idle', msg: ''});
 
   // Load from backend
   useEffect(() => {
@@ -81,12 +83,27 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     try {
+      setTesting(true);
+      setTestResult({ status: 'idle', msg: '正在嗅探原生网络连通性...' });
+      
+      // 1. Verify connection first
+      const pingResult = await invoke<string>("test_llm_connection", { config });
+      
+      // 2. If valid, proceed to save
       await invoke("save_app_config", { config });
+      
+      setTestResult({ status: 'success', msg: pingResult });
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (e) {
-      console.error("保存失败", e);
-      alert(`保存失败: ${e}`);
+      setTimeout(() => {
+        setSaved(false);
+        setTestResult({ status: 'idle', msg: '' });
+      }, 3000);
+    } catch (e: any) {
+      console.error("嗅探或保存失败", e);
+      setTestResult({ status: 'error', msg: e.toString() });
+      setSaved(false);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -218,18 +235,31 @@ export default function SettingsPage() {
         </section>
 
         {/* Submit */}
-        <div className="flex justify-end pb-8">
+        <div className="flex flex-col items-end pb-8">
+           {testResult.status !== 'idle' && (
+             <div className={`mb-4 max-w-md rounded-xl p-4 text-xs font-medium shadow-sm border ${
+               testResult.status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'
+             }`}>
+               {testResult.msg}
+             </div>
+           )}
            <button
              onClick={handleSave}
-             className="flex items-center gap-2 rounded-xl bg-zinc-900 px-8 py-3.5 text-sm font-medium text-white shadow-lg shadow-zinc-900/20 transition-all hover:bg-zinc-800 active:scale-95"
+             disabled={testing}
+             className="flex items-center gap-2 rounded-xl bg-zinc-900 px-8 py-3.5 text-sm font-medium text-white shadow-lg shadow-zinc-900/20 transition-all hover:bg-zinc-800 active:scale-95 disabled:opacity-50"
            >
-             {saved ? (
+             {testing ? (
+               <>
+                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                 验证并下发配置...
+               </>
+             ) : saved ? (
                <>
                  <CheckCircle2 className="h-4 w-4" /> 已系统同步生效
                </>
              ) : (
                <>
-                 <Save className="h-4 w-4" /> 应用并持久化配置
+                 <Save className="h-4 w-4" /> 验证并持久化网络配置
                </>
              )}
            </button>

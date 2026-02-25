@@ -70,10 +70,10 @@ pub async fn call_deepseek_chat(
     history: &[ChatMessage],
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let api_key = env::var("DEEPSEEK_API_KEY")
-        .map_err(|_| "DEEPSEEK_API_KEY is missing. Please configure it in Settings.")?;
+        .map_err(|_| "DEEPSEEK_API_KEY is missing. Please configure it in Settings.")?.trim().to_string();
     let base_url =
-        env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".to_string());
-    let deepseek_model = env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+        env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".to_string()).trim().to_string();
+    let deepseek_model = env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string()).trim().to_string();
 
     let client = Client::builder().build()?;
 
@@ -162,6 +162,25 @@ pub async fn trigger_fetch_cycle(trigger: tauri::State<'_, Arc<Notify>>) -> Resu
     Ok(())
 }
 
+#[tauri::command]
+pub fn get_chat_history(state: tauri::State<'_, Mutex<ChatState>>) -> Vec<ChatMessage> {
+    if let Ok(chat) = state.lock() {
+        chat.history.clone()
+    } else {
+        vec![]
+    }
+}
+
+#[tauri::command]
+pub fn clear_chat_history(state: tauri::State<'_, Mutex<ChatState>>) -> Result<(), String> {
+    let mut chat = state.lock().map_err(|e| e.to_string())?;
+    // Preserve the system prompt (index 0)
+    if chat.history.len() > 1 {
+        chat.history.truncate(1);
+    }
+    Ok(())
+}
+
 fn get_env_path() -> PathBuf {
     let mut path = env::current_dir().unwrap_or_default();
     if path.ends_with("src-tauri") {
@@ -208,12 +227,51 @@ pub async fn save_app_config(config: AppConfig) -> Result<String, String> {
     fs::write(&env_path, content).map_err(|e| format!("写入写 .env 失败: {}", e))?;
 
     // Instantly set env vars for current process
-    env::set_var("DEEPSEEK_API_KEY", config.deepseek_api_key);
-    env::set_var("DEEPSEEK_BASE_URL", config.deepseek_base_url);
-    env::set_var("DEEPSEEK_MODEL", config.deepseek_model);
-    env::set_var("VARIFLIGHT_API_KEY", config.variflight_api_key);
-    env::set_var("PUSHPLUS_TOKEN", config.pushplus_token);
-    env::set_var("WXPUSHER_UID", config.wxpusher_uid);
+    env::set_var("DEEPSEEK_API_KEY", config.deepseek_api_key.trim());
+    env::set_var("DEEPSEEK_BASE_URL", config.deepseek_base_url.trim());
+    env::set_var("DEEPSEEK_MODEL", config.deepseek_model.trim());
+    env::set_var("VARIFLIGHT_API_KEY", config.variflight_api_key.trim());
+    env::set_var("PUSHPLUS_TOKEN", config.pushplus_token.trim());
+    env::set_var("WXPUSHER_UID", config.wxpusher_uid.trim());
 
     Ok("配置已写入磁盘并热加载成功".to_string())
+}
+
+#[tauri::command]
+pub async fn test_llm_connection(config: AppConfig) -> Result<String, String> {
+    let api_key = config.deepseek_api_key.trim();
+    let base_url = config.deepseek_base_url.trim();
+    let model = config.deepseek_model.trim();
+
+    if api_key.is_empty() || base_url.is_empty() {
+        return Err("API Key 或 Base URL 为空，无法发起嗅探。".to_string());
+    }
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Send a minimal token generation request
+    let body = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": "PING_TEST_ONLY"}],
+        "max_tokens": 1
+    });
+
+    let res = client
+        .post(format!("{}/chat/completions", base_url))
+        .header(header::AUTHORIZATION, format!("Bearer {}", api_key))
+        .header(header::CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("网络请求失败或超时: {}", e))?;
+
+    if res.status().is_success() {
+        Ok("🟢 AI 神经中枢连通验证成功！握手完成。".to_string())
+    } else {
+        let err_body: Value = res.json().await.unwrap_or(Value::Null);
+        Err(format!("🔴 拒绝访问 (状态码 {}): {:?}", res.status(), err_body))
+    }
 }

@@ -28,6 +28,25 @@ export default function ChatPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Load chat history from backend on component mount
+    invoke<any[]>("get_chat_history")
+      .then((hist) => {
+        if (hist && hist.length > 1) {
+          const loadedMsg = hist
+            .filter((m) => m.role !== "system")
+            .map((m, idx) => ({
+              id: `history-${idx}`,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              timestamp: new Date(),
+            }));
+          setMessages(loadedMsg);
+        }
+      })
+      .catch((e) => console.error("Failed to load history:", e));
+  }, []);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
@@ -96,9 +115,24 @@ export default function ChatPage() {
           <h1 className="text-lg font-bold tracking-tight text-zinc-900">AI 出行顾问</h1>
           <p className="text-xs text-zinc-500">和 Magpie 聊聊你的出行计划</p>
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-slate-50 px-3 py-1.5 shadow-sm">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">DeepSeek Core</span>
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]" />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              try {
+                await invoke("clear_chat_history");
+                setMessages([WELCOME_MSG]);
+              } catch (e) {
+                console.error("Failed to clear:", e);
+              }
+            }}
+            className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 hover:text-zinc-600 transition-colors"
+          >
+            清空对话
+          </button>
+          <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-slate-50 px-3 py-1.5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">DeepSeek Core</span>
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]" />
+          </div>
         </div>
       </header>
 
