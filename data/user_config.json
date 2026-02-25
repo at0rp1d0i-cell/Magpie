@@ -1,18 +1,18 @@
 {
   "persona": "leisure",
-  "time_window_start": "2026-03-02",
+  "time_window_start": "2026-03-06",
   "time_window_end": "2026-03-08",
   "departure": {
-    "city": "杭州",
-    "train_code": "HZH",
-    "flight_code": "HGH"
+    "city": "南昌",
+    "flight_code": "KHN",
+    "train_code": "NCG"
   },
   "destinations": [
     {
-      "city": "成都",
-      "train_code": "CDW",
-      "flight_code": "CTU"
+      "city": "大理",
+      "flight_code": "DLU",
+      "train_code": "DKM"
     }
   ],
-  "budget_cap": 1500
+  "budget_cap": 7200
 }

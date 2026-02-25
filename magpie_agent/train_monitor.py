@@ -4,7 +4,6 @@ import argparse
 from curl_cffi import requests
 import time
 import re
-import urllib.parse
 from typing import List
 
 def log(msg):

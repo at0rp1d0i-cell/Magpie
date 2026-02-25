@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import re
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -20,39 +21,38 @@ if not DEEPSEEK_API_KEY:
 # Dynamically inject current date to prevent LLM time hallucination
 CURRENT_DATE = datetime.now().strftime('%Y-%m-%d')
 OUTPUT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'user_config.json')
-CITY_DICT_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'city_codes.json')
+TRAIN_DICT_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'train_stations.json')
 
-# Load the local deterministic dictionary to prevent LLM hallucination of IATA/telecodes
+# Load the local deterministic 12306 dictionary for offline lookup (NOT for prompt injection)
 try:
-    with open(CITY_DICT_PATH, 'r', encoding='utf-8') as f:
-        CITY_DICT_STR = f.read()
+    with open(TRAIN_DICT_PATH, 'r', encoding='utf-8') as f:
+        station_map = json.load(f)
 except FileNotFoundError:
-    CITY_DICT_STR = "{}"
+    station_map = {}
 
 SYSTEM_PROMPT = f"""
 你现在是 Magpie (鹊桥 Agent) 的“首席旅行规划大脑 (The Consultation Brain)”。
-【绝对时空坐标】: 今天是 {CURRENT_DATE}。用户所说的“下个月”、“下周”、“今年”都必须基于这个基准时间来推导，且直接输出当前或未来的绝对年份，绝不允许输出你知识库截止年份之前的日期。（比如，现在是 2026 年，输出 2024 年将导致整个系统瘫痪！）
+你的任务是通过多轮自然语言对话，精准探测并量化出用户的泛化出行意图。用户的语言可能很“大白话”或者很随意（比如“下个月想度个假，预算一千”），你需要像一个懂行的管家一样和其沟通。
 
-你的任务是通过与用户的自然语言多轮对话，收敛他们极其模糊的出行构想，最终输出一份结构化的「量化监控配置单」。
+当前系统时间是：{CURRENT_DATE}，用户所说的“明天”、“下周”、“下个月”等相对时间，必须基于该时间戳进行准确推算。
 
+【你的收敛目标】
+你需要收敛出以下 4 个核心维度，如果缺失，你要主动问：
+1. **时间窗 (Time Window)**: 必须是明确的起始与结束日期 (YYYY-MM-DD)。如果有偏差请直接帮他定一个周末。
+2. **地点 (Locations)**: 出发地 (departure) 一般只有一个，但目的地 (destinations) 可以是多个推荐。
+3. **心理预算 (Budget Cap)**: 单张机/车票的能承受的金钱上限。
+4. **人群画像 (Persona)**: 
+   - 如是出差、着急、掐点打卡的，定为 `business`。
+   - 如是随性、旅游、随便看看、穷游的，定为 `leisure`。
 
-【你的工作流】
-1. 像一个极其专业、懂人情世故的私人秘书一样与用户对话。
-2. 你需要通过提问，引导用户明确以下 4 个关键维度的信息：
-   - A. 出发地与目的地 (必须明确双方城市)
-   - B. 时间窗 (出发日期的粗略范围或精确日期)
-   - C. 单张轻量预算上限 (数字，如 500)
-   - D. 用户画像标识 (极度关键！分为两类：如果用户是闲散的捡漏客，标记为 "leisure"；如果是时间卡死的出差客或见女朋友，标记为 "business")
+【对话铁律】
+1. 使用极度自然、略带极客幽默的口吻，绝不能像一个古板的客服。
+2. 每次回复不要太长，要像微信聊天。
 3. 如果信息搜集不足，继续自然地追问缺失部分。不要急于输出 JSON。
 4. 当你认为这四大维度的意图已经完全清晰且收敛时，在你的回复最后，必须附带一个标准的 JSON 格式块，并在外层包裹 ```json 和 ```。
    
-【电报码参照字典】
-为了防止你对国内高铁拼音码和机场三字码产生幻觉，请**严格查阅**以下本地配置表提取对应站点的机读代码：
-{CITY_DICT_STR}
-如果用户提供的城市不在本字典内，你可以发挥你的常识；如果在字典内，则**必须**使用字典提供的 train_code 和 flight_code。
-
 【JSON Schema 规范】
-当条件成熟时，生成的配置必须绝对遵循以下格式（包含引用的机场IATA三字码和12306拼音电报码）：
+当条件成熟时，生成的配置必须绝对遵循以下格式。对于飞常准标准IATA三字码(flight_code)，请调动你的常识，如果是小城市没有机场则可以留空：
 ```json
 {{
   "persona": "leisure" 或 "business",
@@ -60,13 +60,11 @@ SYSTEM_PROMPT = f"""
   "time_window_end": "YYYY-MM-DD",
   "departure": {{
     "city": "北京",
-    "train_code": "BJP",
     "flight_code": "BJS"
   }},
   "destinations": [
     {{
       "city": "南昌",
-      "train_code": "NCG",
       "flight_code": "KHN"
     }}
   ],
@@ -78,31 +76,48 @@ SYSTEM_PROMPT = f"""
 极客感、高效率、不用废话。你可以直接询问用户的构想是什么。
 """
 
-def extract_json(reply_text: str) -> dict | None:
-    # 提取包裹在 markdown json 块里的内容
-    match = re.search(r'```json\s*(.*?)\s*```', reply_text, re.DOTALL)
+def extract_json(text: str) -> dict | None:
+    match = re.search(r"```json\n(.*?)\n```", text, re.DOTALL)
     if match:
-        json_str = match.group(1)
         try:
-            return json.loads(json_str)
+            return json.loads(match.group(1))
         except json.JSONDecodeError as e:
             sys.stderr.write(f"[Warning] Failed to parse generated JSON: {e}\n")
     return None
 
-def start_consultation():
+def lookup_train_code(city_name: str) -> str:
+    """Offline deterministic lookup to avoid LLM hallucination"""
+    if city_name in station_map:
+        return station_map[city_name]
+    if city_name + "站" in station_map:
+        return station_map[city_name + "站"]
+    if city_name + "东" in station_map:
+        return station_map[city_name + "东"]
+    if city_name + "西" in station_map:
+        return station_map[city_name + "西"]
+    return "" # Default fallback
+
+async def call_deepseek(messages: list) -> str:
+    client = OpenAI(
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL,
+    )
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=messages,
+        temperature=0.7,
+        max_tokens=600
+    )
+    return response.choices[0].message.content
+
+async def chat_loop():
     print("======================================================")
     print("🐦 Magpie Consultation Brain (Powered by DeepSeek V3.2)")
     print("======================================================\n")
     print("Magpie: 老板好！我是你的私人差旅规划大脑。近期有什么出行的构想吗？可以告诉我大概的城市、时间段和心理预算。")
 
-    client = OpenAI(
-        api_key=DEEPSEEK_API_KEY,
-        base_url=DEEPSEEK_BASE_URL,
-    )
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "assistant", "content": "老板好！我是你的私人差旅规划大脑。近期有什么出行的构想吗？可以告诉我大概的城市、时间段和心理预算。"}
+    chat_history = [
+        {"role": "system", "content": SYSTEM_PROMPT}
     ]
 
     while True:
@@ -110,7 +125,7 @@ def start_consultation():
             user_input = input("\n> You: ")
         except (KeyboardInterrupt, EOFError):
             print("\n[退出谈话]")
-            sys.exit(0)
+            break
 
         if not user_input.strip():
             continue
@@ -118,31 +133,32 @@ def start_consultation():
         if user_input.lower() in ['exit', 'quit']:
             break
 
-        messages.append({"role": "user", "content": user_input})
+        chat_history.append({"role": "user", "content": user_input})
 
         try:
-            response = client.chat.completions.create(
-                model="deepseek-chat",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=600
-            )
+            response = await call_deepseek(chat_history)
             
-            reply = response.choices[0].message.content
-            print(f"\n🐦 Magpie: \n{reply}")
-            messages.append({"role": "assistant", "content": reply})
+            print(f"\n🐦 Magpie: \n{response}")
+            chat_history.append({"role": "assistant", "content": response})
 
-            # 监听 LLM 是否完成了收敛兵吐出了 JSON 配置单
-            config_data = extract_json(reply)
-            if config_data:
+            config = extract_json(response)
+            if config:
+                # Post-process Offline Dictionary Mapping
+                if "departure" in config and "city" in config["departure"]:
+                    config["departure"]["train_code"] = lookup_train_code(config["departure"]["city"])
+                    
+                if "destinations" in config:
+                    for dest in config["destinations"]:
+                        if "city" in dest:
+                            dest["train_code"] = lookup_train_code(dest["city"])
+                            
                 print("\n================ 量化阈值配置已生成 ================")
-                print(json.dumps(config_data, ensure_ascii=False, indent=2))
+                print(json.dumps(config, ensure_ascii=False, indent=2))
                 
-                # 确保 data 目录存在
                 os.makedirs(os.path.dirname(OUTPUT_CONFIG_PATH), exist_ok=True)
                 
                 with open(OUTPUT_CONFIG_PATH, 'w', encoding='utf-8') as f:
-                    json.dump(config_data, f, ensure_ascii=False, indent=2)
+                    json.dump(config, f, ensure_ascii=False, indent=2)
                 
                 print(f"✅ 配置文件已成功下发至：{OUTPUT_CONFIG_PATH}")
                 print("通知 Rust 底层引擎加载新的变频探测策略结束！(Phase 2 接管启动...)")
@@ -152,4 +168,4 @@ def start_consultation():
             sys.stderr.write(f"\n[Error] 与 DeepSeek 通信异常: {e}\n")
 
 if __name__ == "__main__":
-    start_consultation()
+    asyncio.run(chat_loop())

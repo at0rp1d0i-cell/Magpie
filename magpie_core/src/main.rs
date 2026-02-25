@@ -1,11 +1,11 @@
 use chrono::Local;
-use rusqlite::{params, Connection, Result as SqliteResult};
+use rusqlite::{Connection, Result as SqliteResult, params};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::error::Error;
 use std::path::PathBuf;
 use tokio::process::Command;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OmniTicket {
@@ -42,7 +42,12 @@ fn init_db(db_path: &PathBuf) -> SqliteResult<Connection> {
     Ok(conn)
 }
 
-async fn fetch_tickets(date: &str, from_city: &str, to_city: &str, script_name: &str) -> Result<Vec<OmniTicket>, Box<dyn Error>> {
+async fn fetch_tickets(
+    date: &str,
+    from_city: &str,
+    to_city: &str,
+    script_name: &str,
+) -> Result<Vec<OmniTicket>, Box<dyn Error>> {
     let mut agent_dir = env::current_dir()?;
     agent_dir.pop();
     agent_dir.push("magpie_agent");
@@ -81,13 +86,14 @@ async fn fetch_tickets(date: &str, from_city: &str, to_city: &str, script_name: 
     let stdout_str = String::from_utf8(output.stdout)?;
     // output usually contains JSON lines, let's just parse it directly
     if stdout_str.trim().is_empty() {
-         return Ok(vec![]);
+        return Ok(vec![]);
     }
-    
+
     let tickets: Vec<OmniTicket> = serde_json::from_str(&stdout_str)?;
     Ok(tickets)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct StationInfo {
     city: String,
@@ -130,12 +136,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[allow(clippy::never_loop)]
     loop {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        
+
         // 动态热重载用户配置单 (Hot Reload Strategy)
         let config = match load_user_config(&config_file) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[Warning] Failed to load config from {:?}: {}. Using default fallback.", config_file, e);
+                eprintln!(
+                    "[Warning] Failed to load config from {:?}: {}. Using default fallback.",
+                    config_file, e
+                );
                 // 默认提供一个安全的防御性配置
                 UserConfig {
                     persona: "leisure".to_string(),
@@ -170,12 +179,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("\n[Intent Strategy] 🧑‍💼 Persona: Business -> Active polling every 60s.");
             Duration::from_secs(60)
         } else {
-            println!("\n[Intent Strategy] 🍹 Persona: Leisure -> Winter mode polling every 10800s (3 hours).");
+            println!(
+                "\n[Intent Strategy] 🍹 Persona: Leisure -> Winter mode polling every 10800s (3 hours)."
+            );
             Duration::from_secs(10800)
         };
 
-        println!("[{}] ⏳ Cycle: Calling Python Agent for {} -> {} on {} with Budget Cap ￥{}...", now, from_train, to_train, date, config.budget_cap);
-        
+        println!(
+            "[{}] ⏳ Cycle: Calling Python Agent for {} -> {} on {} with Budget Cap ￥{}...",
+            now, from_train, to_train, date, config.budget_cap
+        );
+
         match fetch_tickets(date, from_train, to_train, "train_monitor.py").await {
             Ok(tickets) => {
                 let mut inserted = 0;
@@ -186,23 +200,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             "INSERT INTO omni_tickets (fetch_time, travel_date, from_station_name, to_station_name, vehicle_code, vehicle_type, booking_status, start_time, arrive_time, duration, price_info)
                              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                             params![
-                                now, date, t.from_station_name, t.to_station_name, 
-                                t.vehicle_code, t.vehicle_type, t.booking_status, t.start_time, t.arrive_time, 
+                                now, date, t.from_station_name, t.to_station_name,
+                                t.vehicle_code, t.vehicle_type, t.booking_status, t.start_time, t.arrive_time,
                                 t.duration, t.price_info
                             ],
                         )?;
                         inserted += 1;
                     }
                 }
-                println!("✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.", tickets.len(), inserted);
-            },
+                println!(
+                    "✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.",
+                    tickets.len(),
+                    inserted
+                );
+            }
             Err(e) => {
                 eprintln!("❌ Train Cycle Failed: {}", e);
             }
         }
 
         // Also run flight fetch
-        println!("[{}] ⏳ Cycle: Calling Flight Agent for {} -> {} on {}...", now, from_flight, to_flight, date);
+        println!(
+            "[{}] ⏳ Cycle: Calling Flight Agent for {} -> {} on {}...",
+            now, from_flight, to_flight, date
+        );
         match fetch_tickets(date, from_flight, to_flight, "flight_monitor.py").await {
             Ok(tickets) => {
                 let mut inserted = 0;
@@ -212,16 +233,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             "INSERT INTO omni_tickets (fetch_time, travel_date, from_station_name, to_station_name, vehicle_code, vehicle_type, booking_status, start_time, arrive_time, duration, price_info)
                              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                             params![
-                                now, date, t.from_station_name, t.to_station_name, 
-                                t.vehicle_code, t.vehicle_type, t.booking_status, t.start_time, t.arrive_time, 
+                                now, date, t.from_station_name, t.to_station_name,
+                                t.vehicle_code, t.vehicle_type, t.booking_status, t.start_time, t.arrive_time,
                                 t.duration, t.price_info
                             ],
                         )?;
                         inserted += 1;
                     }
                 }
-                println!("✅ Cycle Complete: Received {} flights, inserted {} valid records to SQLite.", tickets.len(), inserted);
-            },
+                println!(
+                    "✅ Cycle Complete: Received {} flights, inserted {} valid records to SQLite.",
+                    tickets.len(),
+                    inserted
+                );
+            }
             Err(e) => {
                 eprintln!("❌ Flight Cycle Failed: {}", e);
             }
@@ -229,10 +254,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         println!("💤 Sleeping for {} seconds...\n", fetch_interval.as_secs());
         sleep(fetch_interval).await;
-        
+
         // Break after 1 cycle for demo purposes, so the process doesn't hang in CI/sandbox
         // Remove this break for the real background daemon.
-        break; 
+        break;
     }
 
     Ok(())
