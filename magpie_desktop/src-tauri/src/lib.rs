@@ -23,6 +23,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             commands::chat_send_message,
+            commands::get_app_config,
+            commands::save_app_config,
             queries::get_latest_tickets,
             queries::get_daemon_status
         ])

@@ -1,65 +1,63 @@
 import { NavLink } from "react-router-dom";
-import { motion } from "framer-motion";
+import {
+  MessageSquareQuote,
+  LayoutDashboard,
+  ClipboardList,
+  BellRing,
+  Settings,
+  PocketKnife
+} from "lucide-react";
 
 const NAV_ITEMS = [
-  { path: "/",          icon: "💬", label: "Chat" },
-  { path: "/dashboard", icon: "📊", label: "Monitor" },
-  { path: "/plans",     icon: "📋", label: "Plans" },
-  { path: "/alerts",    icon: "🔔", label: "Alerts" },
-  { path: "/settings",  icon: "⚙️", label: "Settings" },
+  { path: "/",          icon: MessageSquareQuote, label: "Chat" },
+  { path: "/dashboard", icon: LayoutDashboard,     label: "Monitor" },
+  { path: "/plans",     icon: ClipboardList,       label: "Plans" },
+  { path: "/alerts",    icon: BellRing,            label: "Alerts" },
+  { path: "/settings",  icon: Settings,            label: "Settings" },
 ];
 
 export default function Sidebar() {
   return (
-    <aside className="flex h-screen w-[72px] flex-col items-center border-r border-white/[0.06] bg-black/40 py-6 backdrop-blur-xl">
-      {/* Brand logo */}
-      <div className="mb-8 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-lg font-black text-white shadow-lg shadow-violet-500/30">
-        M
+    <aside className="flex h-full w-[72px] flex-col items-center justify-between rounded-[24px] bg-white py-6 shadow-glass ring-1 ring-zinc-200/50">
+      
+      {/* Top Branding */}
+      <div className="flex flex-col items-center">
+        {/* Brand logo */}
+        <div className="mb-8 flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-pop">
+          <PocketKnife className="h-5 w-5" />
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex flex-col items-center gap-2">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) =>
+                [
+                  "group relative flex h-[46px] w-[46px] items-center justify-center rounded-full transition-all duration-300",
+                  isActive
+                    ? "bg-zinc-900 text-white shadow-pop"
+                    : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800",
+                ].join(" ")
+              }
+            >
+              <item.icon className="relative z-10 h-5 w-5 stroke-[2px]" />
+              
+              {/* Tooltip */}
+              <span className="pointer-events-none absolute left-[60px] whitespace-nowrap rounded-lg bg-zinc-900 px-3 py-1.5 text-[11px] font-medium text-white opacity-0 shadow-lg shadow-zinc-900/10 transition-all duration-200 group-hover:translate-x-1 group-hover:opacity-100">
+                {item.label}
+              </span>
+            </NavLink>
+          ))}
+        </nav>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex flex-1 flex-col items-center gap-1">
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) =>
-              [
-                "group relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200",
-                isActive
-                  ? "bg-white/10 shadow-lg shadow-violet-500/10"
-                  : "hover:bg-white/[0.06]",
-              ].join(" ")
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeTab"
-                    className="absolute left-0 h-6 w-[3px] rounded-r-full bg-gradient-to-b from-violet-400 to-fuchsia-400"
-                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                  />
-                )}
-                <span className="text-lg">{item.icon}</span>
-                {/* Tooltip */}
-                <span className="pointer-events-none absolute left-16 rounded-lg bg-zinc-800 px-2.5 py-1 text-xs font-medium text-white/80 opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
-                  {item.label}
-                </span>
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-
       {/* Status indicator */}
-      <div className="flex flex-col items-center gap-1">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-        </span>
-        <span className="text-[9px] font-medium uppercase tracking-widest text-white/30">
-          Live
+      <div className="flex flex-col items-center gap-1.5">
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
         </span>
       </div>
     </aside>

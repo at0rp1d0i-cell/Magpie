@@ -2,12 +2,24 @@ use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AppConfig {
+    pub deepseek_api_key: String,
+    pub deepseek_base_url: String,
+    pub deepseek_model: String,
+    pub variflight_api_key: String,
+    pub pushplus_token: String,
+    pub wxpusher_uid: String,
 }
 
 /// Persistent chat history per Tauri app lifetime.
@@ -60,11 +72,12 @@ pub async fn call_deepseek_chat(
         .map_err(|_| "DEEPSEEK_API_KEY is missing. Please configure it in Settings.")?;
     let base_url =
         env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".to_string());
+    let deepseek_model = env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
 
     let client = Client::builder().build()?;
 
     let body = json!({
-        "model": "deepseek-chat",
+        "model": deepseek_model,
         "messages": history,
         "temperature": 0.7,
         "max_tokens": 800
@@ -119,4 +132,60 @@ pub async fn chat_send_message(
         }
         Err(e) => Err(format!("AI 对话失败: {}", e)),
     }
+}
+
+fn get_env_path() -> PathBuf {
+    let mut path = env::current_dir().unwrap_or_default();
+    if path.ends_with("src-tauri") {
+        path.pop();
+        path.pop();
+    }
+    path.join(".env")
+}
+
+#[tauri::command]
+pub async fn get_app_config() -> Result<AppConfig, String> {
+    let env_path = get_env_path();
+    let _ = dotenvy::from_filename(&env_path).ok();
+
+    Ok(AppConfig {
+        deepseek_api_key: env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+        deepseek_base_url: env::var("DEEPSEEK_BASE_URL").unwrap_or_default(),
+        deepseek_model: env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string()),
+        variflight_api_key: env::var("VARIFLIGHT_API_KEY").unwrap_or_default(),
+        pushplus_token: env::var("PUSHPLUS_TOKEN").unwrap_or_default(),
+        wxpusher_uid: env::var("WXPUSHER_UID").unwrap_or_default(),
+    })
+}
+
+#[tauri::command]
+pub async fn save_app_config(config: AppConfig) -> Result<String, String> {
+    let env_path = get_env_path();
+    
+    let content = format!(
+        "DEEPSEEK_API_KEY={}\n\
+         DEEPSEEK_BASE_URL={}\n\
+         DEEPSEEK_MODEL={}\n\
+         VARIFLIGHT_API_KEY={}\n\
+         PUSHPLUS_TOKEN={}\n\
+         WXPUSHER_UID={}\n",
+        config.deepseek_api_key,
+        config.deepseek_base_url,
+        config.deepseek_model,
+        config.variflight_api_key,
+        config.pushplus_token,
+        config.wxpusher_uid
+    );
+
+    fs::write(&env_path, content).map_err(|e| format!("写入写 .env 失败: {}", e))?;
+
+    // Instantly set env vars for current process
+    env::set_var("DEEPSEEK_API_KEY", config.deepseek_api_key);
+    env::set_var("DEEPSEEK_BASE_URL", config.deepseek_base_url);
+    env::set_var("DEEPSEEK_MODEL", config.deepseek_model);
+    env::set_var("VARIFLIGHT_API_KEY", config.variflight_api_key);
+    env::set_var("PUSHPLUS_TOKEN", config.pushplus_token);
+    env::set_var("WXPUSHER_UID", config.wxpusher_uid);
+
+    Ok("配置已写入磁盘并热加载成功".to_string())
 }

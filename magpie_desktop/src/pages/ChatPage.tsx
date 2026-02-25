@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../utils/tauri";
+import { SendHorizontal } from "lucide-react";
 
 interface Message {
   id: string;
@@ -74,22 +75,22 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-white">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-white/[0.06] px-8 py-5">
+      <header className="flex items-center justify-between border-b border-zinc-100 px-8 py-5">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-white/90">AI 出行顾问</h1>
-          <p className="text-xs text-white/40">和 Magpie 聊聊你的出行计划</p>
+          <h1 className="text-lg font-bold tracking-tight text-zinc-900">AI 出行顾问</h1>
+          <p className="text-xs text-zinc-500">和 Magpie 聊聊你的出行计划</p>
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50">DeepSeek V3</span>
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-slate-50 px-3 py-1.5 shadow-sm">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">DeepSeek Core</span>
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]" />
         </div>
       </header>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="mx-auto max-w-2xl space-y-6">
+        <div className="mx-auto max-w-4xl space-y-6">
           <AnimatePresence>
             {messages.map((msg) => (
               <motion.div
@@ -101,14 +102,14 @@ export default function ChatPage() {
               >
                 <div
                   className={[
-                    "max-w-[80%] rounded-2xl px-5 py-3.5 text-[14px] leading-relaxed",
+                    "max-w-[80%] rounded-[20px] px-5 py-3.5 text-[14px] leading-relaxed shadow-sm",
                     msg.role === "user"
-                      ? "bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white"
-                      : "border border-white/10 bg-white/[0.05] text-white/85 backdrop-blur-md",
+                      ? "bg-zinc-900 text-white rounded-tr-sm"
+                      : "border border-zinc-100 bg-slate-50 text-zinc-800 rounded-tl-sm",
                   ].join(" ")}
                 >
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
-                  <p className={`mt-1.5 text-[10px] ${msg.role === "user" ? "text-white/50" : "text-white/25"}`}>
+                  <p className="whitespace-pre-wrap leading-7">{msg.content}</p>
+                  <p className={`mt-2 text-[10px] font-medium tracking-wide ${msg.role === "user" ? "text-zinc-400" : "text-zinc-400"}`}>
                     {msg.timestamp.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
@@ -122,10 +123,10 @@ export default function ChatPage() {
               animate={{ opacity: 1 }}
               className="flex justify-start"
             >
-              <div className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.05] px-5 py-3.5 backdrop-blur-md">
-                <span className="h-2 w-2 animate-bounce rounded-full bg-violet-400 [animation-delay:0ms]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-violet-400 [animation-delay:150ms]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-violet-400 [animation-delay:300ms]" />
+              <div className="flex items-center gap-1.5 rounded-[20px] rounded-tl-sm border border-zinc-100 bg-slate-50 px-5 py-4 shadow-sm">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:300ms]" />
               </div>
             </motion.div>
           )}
@@ -133,8 +134,8 @@ export default function ChatPage() {
       </div>
 
       {/* Input area */}
-      <div className="border-t border-white/[0.06] px-8 py-4">
-        <div className="mx-auto flex max-w-2xl items-end gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 backdrop-blur-md transition-colors focus-within:border-violet-500/40 focus-within:bg-white/[0.06]">
+      <div className="border-t border-zinc-100 bg-white px-8 py-5">
+        <div className="mx-auto flex max-w-4xl items-end gap-3 rounded-2xl border border-zinc-200 bg-slate-50 px-4 py-3 shadow-sm transition-colors focus-within:border-zinc-400 focus-within:ring-1 focus-within:ring-zinc-400">
           <textarea
             ref={inputRef}
             value={input}
@@ -142,19 +143,17 @@ export default function ChatPage() {
             onKeyDown={handleKeyDown}
             placeholder="告诉 Magpie 你的出行计划..."
             rows={1}
-            className="flex-1 resize-none bg-transparent text-sm text-white/90 placeholder-white/25 outline-none"
+            className="flex-1 resize-none bg-transparent py-1.5 text-[14px] text-zinc-900 placeholder-zinc-400 outline-none"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white transition-all hover:shadow-lg hover:shadow-violet-500/30 disabled:opacity-30"
+            className="flex h-[36px] w-[36px] flex-shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-md transition-all hover:bg-zinc-800 disabled:opacity-40 disabled:shadow-none"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-              <path d="M3.105 2.288a.75.75 0 0 0-.826.95l1.414 4.926A1.5 1.5 0 0 0 5.135 9.25h6.115a.75.75 0 0 1 0 1.5H5.135a1.5 1.5 0 0 0-1.442 1.086l-1.414 4.926a.75.75 0 0 0 .826.95 28.897 28.897 0 0 0 15.293-7.155.75.75 0 0 0 0-1.114A28.897 28.897 0 0 0 3.105 2.288Z" />
-            </svg>
+            <SendHorizontal className="h-[18px] w-[18px]" strokeWidth={2.5} />
           </button>
         </div>
-        <p className="mt-2 text-center text-[10px] text-white/20">
+        <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-400">
           Enter 发送 · Shift + Enter 换行
         </p>
       </div>

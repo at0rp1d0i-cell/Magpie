@@ -1,0 +1,58 @@
+name: Release Magpie Desktop v2.0
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          
+      - name: Install dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        
+      - name: Setup Rust cargo
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          
+      - name: Install Frontend Dependencies
+        working-directory: ./magpie_desktop
+        run: npm install
+        
+      - name: Build and Package Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: magpie-v__VERSION__ # to be replaced with the actual tag
+          releaseName: 'Magpie Desktop v__VERSION__'
+          releaseBody: 'Magpie V2.0 Premium Light SaaS Edition. 含有多模型聚合与防杀熟系统设置。'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+          projectPath: ./magpie_desktop

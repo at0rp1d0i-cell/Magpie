@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../utils/tauri";
+import { RefreshCw, Plane, Train, Activity } from "lucide-react";
 
 // Mock data — will be replaced by Tauri IPC `get_latest_tickets()`
 const MOCK_TICKETS = [
@@ -47,70 +48,72 @@ export default function DashboardPage() {
   const cheapest = [...displayTickets].sort((a: any, b: any) => extractPrice(a.price_info) - extractPrice(b.price_info))[0];
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto bg-white">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-white/[0.06] px-8 py-5">
+      <header className="flex items-center justify-between border-b border-zinc-100 px-8 py-5">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-white/90">实时监控仪表盘</h1>
-          <p className="text-xs text-white/40">{new Date().toLocaleDateString("zh-CN")} · 后台 daemon 运行中 ({daemonStatus})</p>
+          <h1 className="text-lg font-bold tracking-tight text-zinc-900">实时监控大盘</h1>
+          <p className="mt-1 text-xs text-zinc-500">{new Date().toLocaleDateString("zh-CN")} · 后台 daemon 运行中 ({daemonStatus})</p>
         </div>
-        <button className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-white/60 transition-all hover:border-violet-500/40 hover:bg-white/[0.08] hover:text-white/90">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5"><path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z" clipRule="evenodd" /></svg>
+        <button 
+          onClick={() => setPulse((p) => !p)} 
+          className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 text-xs font-medium text-zinc-600 shadow-sm transition-all hover:bg-slate-50 hover:text-zinc-900 active:scale-95"
+        >
+          <RefreshCw className="h-3.5 w-3.5 stroke-[2.5px]" />
           手动抓取
         </button>
       </header>
-
       <div className="space-y-6 p-8">
         {/* Stats cards */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "当前最低价", value: `￥${extractPrice(cheapest.price_info)}`, sub: cheapest.vehicle_code, color: "text-emerald-400" },
-            { label: "监控航班", value: flights.length.toString(), sub: "航线", color: "text-sky-400" },
-            { label: "监控高铁", value: trains.length.toString(), sub: "车次", color: "text-amber-400" },
+            { label: "当前最低价", value: `￥${extractPrice(cheapest.price_info)}`, sub: cheapest.vehicle_code, color: "text-zinc-900" },
+            { label: "监控航班", value: flights.length.toString(), sub: "条可用航线", color: "text-zinc-800" },
+            { label: "监控高铁", value: trains.length.toString(), sub: "有效组次", color: "text-zinc-800" },
           ].map((stat) => (
             <motion.div
               key={stat.label}
-              whileHover={{ scale: 1.02 }}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md"
+              whileHover={{ scale: 1.01 }}
+              className="rounded-2xl border border-zinc-200/60 bg-slate-50 p-6 shadow-sm"
             >
-              <p className="text-[11px] font-medium uppercase tracking-widest text-white/35">{stat.label}</p>
-              <p className={`mt-1 font-mono text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-              <p className="mt-0.5 text-xs text-white/30">{stat.sub}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">{stat.label}</p>
+              <p className={`mt-2 font-mono text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+              <p className="mt-1 text-xs font-medium text-zinc-500">{stat.sub}</p>
             </motion.div>
           ))}
         </div>
 
         {/* Ticket matrix */}
         <div>
-          <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-white/35">
+          <h2 className="mb-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">
             Price Matrix · 全网快照
           </h2>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {displayTickets.slice(0, 8).map((t, i) => (
               <motion.div
                 key={t.vehicle_code + i}
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.06 }}
-                className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-5 py-3 transition-colors hover:bg-white/[0.07]"
+                className="flex items-center justify-between rounded-xl border border-zinc-100 bg-white px-5 py-3.5 shadow-sm transition-colors hover:border-zinc-300"
               >
                 <div className="flex items-center gap-4">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/[0.06] text-base">
-                    {t.vehicle_type === "flight" ? "✈️" : "🚄"}
+                  <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-slate-100 text-zinc-600">
+                    {t.vehicle_type === "flight" ? <Plane className="h-5 w-5" /> : <Train className="h-5 w-5" />}
                   </span>
                   <div>
-                    <p className="font-mono text-sm font-semibold text-white/90">{t.vehicle_code}</p>
-                    <p className="text-[11px] text-white/30">
+                    <p className="font-mono text-sm font-bold text-zinc-900">{t.vehicle_code}</p>
+                    <p className="mt-0.5 text-[11px] font-medium text-zinc-500">
                       {t.from_station_name} → {t.to_station_name} · {t.duration}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-8">
                   <div className="text-right">
-                    <p className="text-xs text-white/40">{t.start_time} → {t.arrive_time}</p>
+                    <p className="text-xs font-medium text-zinc-400">{t.start_time} <span className="text-zinc-300">→</span> {t.arrive_time}</p>
                   </div>
                   <div className="min-w-[80px] text-right">
-                    <p className="font-mono text-sm font-bold text-white/90">{t.price_info.split("|")[0]}</p>
+                    <p className="font-mono text-[15px] font-black text-zinc-900">{t.price_info.split("|")[0]}</p>
                   </div>
                 </div>
               </motion.div>
@@ -119,15 +122,17 @@ export default function DashboardPage() {
         </div>
 
         {/* Daemon heartbeat */}
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5">
-          <div className="flex items-center gap-3">
-            <span className="relative flex h-3 w-3">
+        <div className="rounded-2xl border border-zinc-200/60 bg-slate-50 p-5 shadow-sm">
+          <div className="flex items-center gap-3.5">
+            <span className="relative flex h-3.5 w-3.5 items-center justify-center">
               <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${pulse ? "animate-ping bg-emerald-400" : "bg-emerald-500"}`} />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-400" />
+              <span className="relative flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]">
+                 <Activity className="h-2 w-2 text-white" />
+              </span>
             </span>
             <div>
-              <p className="text-sm font-medium text-white/80">Tokio Daemon 运行中</p>
-              <p className="text-xs text-white/30">Strategy: Leisure · 每 3 小时抓取 · 上次: {new Date().toLocaleTimeString("zh-CN")}</p>
+              <p className="text-sm font-bold text-zinc-800">Tokio Native 线程巡视中</p>
+              <p className="mt-0.5 text-xs font-medium text-zinc-500">Strategy: VIP Leisure · 智能间隙抓取 · 上次: {new Date().toLocaleTimeString("zh-CN")}</p>
             </div>
           </div>
         </div>
