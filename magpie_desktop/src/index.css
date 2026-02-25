@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --font-inter: "Inter", "system-ui", sans-serif;
+  --font-mono: "ui-monospace", "SFMono-Regular", "Menlo", monospace;
+}
+
+@layer base {
+  body {
+    background-color: transparent;
+    color: white;
+    font-family: var(--font-inter);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+}
