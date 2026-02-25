@@ -144,8 +144,11 @@ pub async fn query_12306(
                         start_time: parts[8].to_string(),
                         arrive_time: parts[9].to_string(),
                         duration: parts[10].to_string(),
+                        // 12306 queryZ does not return prices directly.
+                        // [30]=second class seats, [31]=first class seats, [26]=standing seats
+                        // These are availability counts ("有"/"无"/number), not prices.
                         price_info: format!(
-                            "二等座:{}|一等座:{}|无座:{}",
+                            "二等座:{}¦一等座:{}¦无座:{}",
                             parts[30], parts[31], parts[26]
                         ),
                         from_station_name: from.to_string(),

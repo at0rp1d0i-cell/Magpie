@@ -3,11 +3,23 @@ import { motion } from "framer-motion";
 import { invoke } from "../utils/tauri";
 import { RefreshCw, Plane, Train, Activity } from "lucide-react";
 
-// Real data fetched via Tauri IPC `get_latest_tickets()`
-
+// Extract numeric price from flight-style "￥420" format
 function extractPrice(priceInfo: string): number {
   const match = priceInfo.match(/￥(\d+)/);
   return match ? parseInt(match[1]) : 0;
+}
+
+// Format display string for the right column based on vehicle type
+function formatPriceDisplay(ticket: any): string {
+  if (ticket.vehicle_type === "flight") {
+    return ticket.price_info; // "￥420" — already good
+  }
+  // For trains: "二等座:有¦一等座:无¦无座:1" → show first non-empty seat availability
+  const parts = ticket.price_info.split("¦");
+  if (parts.length > 0) {
+    return parts[0]; // e.g. "二等座:有"
+  }
+  return ticket.price_info;
 }
 
 export default function DashboardPage() {
@@ -42,7 +54,12 @@ export default function DashboardPage() {
   const displayTickets = tickets;
   const flights = displayTickets.filter((t: any) => t.vehicle_type === "flight");
   const trains = displayTickets.filter((t: any) => t.vehicle_type === "train");
-  const cheapest = [...displayTickets].sort((a: any, b: any) => extractPrice(a.price_info) - extractPrice(b.price_info))[0];
+  
+  // Only compute cheapest from tickets that actually have price data (flights)
+  const pricedTickets = flights.filter((t) => extractPrice(t.price_info) > 0);
+  const cheapest = pricedTickets.length > 0
+    ? [...pricedTickets].sort((a, b) => extractPrice(a.price_info) - extractPrice(b.price_info))[0]
+    : null;
 
   return (
     <div className="h-full overflow-y-auto bg-white">
@@ -64,7 +81,12 @@ export default function DashboardPage() {
         {/* Stats cards */}
         <div className="grid grid-cols-3 gap-4">
           {(displayTickets.length > 0 ? [
-            { label: "当前最低价", value: `￥${extractPrice(cheapest?.price_info || "￥0")}`, sub: cheapest?.vehicle_code || "--", color: "text-zinc-900" },
+            { 
+              label: "当前最低价", 
+              value: cheapest ? `￥${extractPrice(cheapest.price_info)}` : "暂无报价", 
+              sub: cheapest?.vehicle_code || "等待航班数据", 
+              color: cheapest ? "text-zinc-900" : "text-zinc-400" 
+            },
             { label: "监控航班", value: flights.length.toString(), sub: "条可用航线", color: "text-zinc-800" },
             { label: "监控高铁", value: trains.length.toString(), sub: "有效组次", color: "text-zinc-800" },
           ] : [
@@ -115,7 +137,11 @@ export default function DashboardPage() {
                       <p className="text-xs font-medium text-zinc-400">{t.start_time} <span className="text-zinc-300">→</span> {t.arrive_time}</p>
                     </div>
                     <div className="min-w-[80px] text-right">
-                      <p className="font-mono text-[15px] font-black text-zinc-900">{t.price_info.split("|")[0]}</p>
+                      <p className={`font-mono text-[15px] font-black ${
+                        t.vehicle_type === "flight" ? "text-zinc-900" : "text-zinc-700"
+                      }`}>
+                        {formatPriceDisplay(t)}
+                      </p>
                     </div>
                   </div>
                 </motion.div>
