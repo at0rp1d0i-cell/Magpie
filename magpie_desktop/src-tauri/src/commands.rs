@@ -271,7 +271,8 @@ pub async fn test_llm_connection(config: AppConfig) -> Result<String, String> {
     if res.status().is_success() {
         Ok("🟢 AI 神经中枢连通验证成功！握手完成。".to_string())
     } else {
+        let status_code = res.status();
         let err_body: Value = res.json().await.unwrap_or(Value::Null);
-        Err(format!("🔴 拒绝访问 (状态码 {}): {:?}", res.status(), err_body))
+        Err(format!("🔴 拒绝访问 (状态码 {}): {:?}", status_code, err_body))
     }
 }
