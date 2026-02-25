@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
 
 interface Message {
   id: string;
@@ -42,9 +43,7 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      // TODO: Replace with actual Tauri IPC call
-      // const reply = await invoke("chat_send_message", { msg: text });
-      const reply = "收到！我正在分析你的需求...\n\n*(IPC 桥接尚未就绪，这是模拟回复。当 Rust 后端的 `chat_send_message` 命令上线后，这里将直接对接 DeepSeek V3.2 大模型！)*";
+      const reply = await invoke<string>("chat_send_message", { msg: text });
 
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -53,8 +52,15 @@ export default function ChatPage() {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiMsg]);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Chat error:", e);
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `⚠️ API 连接失败：${e?.toString() || "请检查 Settings 中的密钥配置"}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
     }
