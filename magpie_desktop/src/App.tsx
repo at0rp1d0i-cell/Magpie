@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 const MagpieDashboard = () => {
   // 模拟从 SQLite 获取的飞行/高铁价格矩阵
