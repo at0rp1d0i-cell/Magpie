@@ -28,10 +28,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             commands::chat_send_message,
+            commands::get_chat_history,
+            commands::clear_chat_history,
             commands::get_app_config,
             commands::save_app_config,
             commands::test_llm_connection,
             commands::trigger_fetch_cycle,
+            commands::get_user_plan,
             queries::get_latest_tickets,
             queries::get_daemon_status
         ])

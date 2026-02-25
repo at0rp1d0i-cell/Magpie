@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "../utils/tauri";
-import { SendHorizontal } from "lucide-react";
+import { SendHorizontal, Rocket, MessageSquare, MapPin, Calendar, Wallet, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface Message {
@@ -9,6 +9,15 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+}
+
+interface PendingPlan {
+  persona?: string;
+  time_window_start?: string;
+  time_window_end?: string;
+  departure?: { city?: string };
+  destinations?: { city?: string }[];
+  budget_cap?: number;
 }
 
 const WELCOME_MSG: Message = {
@@ -23,6 +32,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MSG]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
@@ -75,16 +85,17 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, aiMsg]);
       
-      // Auto-Routing: if JSON output is detected (intent finalized)
+      // Detect JSON config — show confirmation card instead of auto-jumping
       if (reply.includes("```json")) {
-        setTimeout(async () => {
-          try {
-            await invoke("trigger_fetch_cycle");
-            navigate("/dashboard");
-          } catch (err) {
-            console.error(err);
+        try {
+          const jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
+          if (jsonMatch?.[1]) {
+            const parsed = JSON.parse(jsonMatch[1].trim());
+            setPendingPlan(parsed);
           }
-        }, 1500); // Wait closely before jumping to dashboard
+        } catch (parseErr) {
+          console.error("Failed to parse plan JSON:", parseErr);
+        }
       }
     } catch (e: any) {
       console.error("Chat error:", e);
@@ -175,6 +186,80 @@ export default function ChatPage() {
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:0ms]" />
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:150ms]" />
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:300ms]" />
+              </div>
+            </motion.div>
+          )}
+
+          {/* Plan confirmation card */}
+          {pendingPlan && (
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="mx-auto w-full max-w-lg"
+            >
+              <div className="overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white shadow-lg shadow-violet-100/40">
+                <div className="border-b border-violet-100 bg-violet-50/80 px-6 py-4">
+                  <h3 className="text-sm font-bold text-violet-900 flex items-center gap-2">
+                    <Rocket className="h-4 w-4" />
+                    出行方案确认
+                  </h3>
+                  <p className="mt-1 text-[11px] text-violet-600">请审阅以下监控参数，确认无误后启动雷达</p>
+                </div>
+                <div className="space-y-3 px-6 py-5">
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+                    <span className="text-sm text-zinc-600">路线</span>
+                    <span className="ml-auto text-sm font-bold text-zinc-900">
+                      {pendingPlan.departure?.city ?? "?"} → {pendingPlan.destinations?.[0]?.city ?? "?"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Calendar className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+                    <span className="text-sm text-zinc-600">日期</span>
+                    <span className="ml-auto text-sm font-bold text-zinc-900">
+                      {pendingPlan.time_window_start ?? "?"} ~ {pendingPlan.time_window_end ?? "?"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Wallet className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+                    <span className="text-sm text-zinc-600">预算上限</span>
+                    <span className="ml-auto text-sm font-bold text-zinc-900">
+                      ￥{pendingPlan.budget_cap ?? "未设定"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <User className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+                    <span className="text-sm text-zinc-600">出行画像</span>
+                    <span className="ml-auto text-sm font-bold text-zinc-900">
+                      {pendingPlan.persona === "leisure" ? "🏖 休闲度假" : pendingPlan.persona === "business" ? "💼 商务差旅" : pendingPlan.persona ?? "?"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-3 border-t border-violet-100 bg-violet-50/40 px-6 py-4">
+                  <button
+                    onClick={() => setPendingPlan(null)}
+                    className="flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-xs font-semibold text-zinc-600 shadow-sm transition-all hover:bg-zinc-50 active:scale-95"
+                  >
+                    <MessageSquare className="mr-1.5 inline h-3.5 w-3.5" />
+                    继续对话修改
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await invoke("trigger_fetch_cycle");
+                        setPendingPlan(null);
+                        navigate("/dashboard");
+                      } catch (err) {
+                        console.error(err);
+                      }
+                    }}
+                    className="flex-1 rounded-xl bg-zinc-900 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-zinc-900/20 transition-all hover:bg-zinc-800 active:scale-95"
+                  >
+                    <Rocket className="mr-1.5 inline h-3.5 w-3.5" />
+                    确认并启动雷达
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
