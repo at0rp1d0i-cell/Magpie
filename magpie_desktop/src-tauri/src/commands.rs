@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use tokio::sync::Notify;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -128,10 +129,37 @@ pub async fn chat_send_message(
                 role: "assistant".to_string(),
                 content: reply.clone(),
             });
+
+            // If the reply contains a JSON block for user config, extract and save it!
+            if let Some(json_start) = reply.find("```json") {
+                if let Some(json_end) = reply[json_start..].find("```\n").or_else(|| reply[json_start+7..].find("```").map(|i| i + json_start + 7)) {
+                    let mut json_str = &reply[json_start + 7..json_end];
+                    json_str = json_str.trim();
+                    
+                    let mut db_path = env::current_dir().unwrap_or_default();
+                    if db_path.ends_with("src-tauri") {
+                        db_path.pop();
+                        db_path.pop();
+                    }
+                    let config_file = db_path.join("data").join("user_config.json");
+                    let _ = std::fs::create_dir_all(config_file.parent().unwrap());
+                    if let Ok(_) = std::fs::write(&config_file, json_str) {
+                        println!("⚡ 成功拦截 AI 出行配置并落盘至 {:?}", config_file);
+                    }
+                }
+            }
+
             Ok(reply)
         }
         Err(e) => Err(format!("AI 对话失败: {}", e)),
     }
+}
+
+/// Tauri IPC command: manually trigger the daemon loop to wake up and fetch
+#[tauri::command]
+pub async fn trigger_fetch_cycle(trigger: tauri::State<'_, Arc<Notify>>) -> Result<(), String> {
+    trigger.notify_one();
+    Ok(())
 }
 
 fn get_env_path() -> PathBuf {

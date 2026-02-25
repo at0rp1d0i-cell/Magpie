@@ -5,6 +5,8 @@ use crate::models::{StationInfo, UserConfig};
 use chrono::Local;
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Notify;
 use tokio::time::{sleep, Duration};
 
 fn load_user_config(path: &PathBuf) -> Result<UserConfig, Box<dyn std::error::Error>> {
@@ -13,7 +15,7 @@ fn load_user_config(path: &PathBuf) -> Result<UserConfig, Box<dyn std::error::Er
     Ok(config)
 }
 
-pub async fn start_background_task() {
+pub async fn start_background_task(trigger: Arc<Notify>) {
     println!("🐦 Magpie Desktop - High-Frequency Dispatcher Started");
 
     let mut db_path = env::current_dir().unwrap_or_default();
@@ -140,6 +142,11 @@ pub async fn start_background_task() {
         }
 
         println!("💤 Sleeping for {} seconds...\n", fetch_interval.as_secs());
-        sleep(fetch_interval).await;
+        tokio::select! {
+            _ = sleep(fetch_interval) => {},
+            _ = trigger.notified() => {
+                println!("⚡ Instant Fetch TriggerReceived! Waking up immediately...");
+            }
+        }
     }
 }

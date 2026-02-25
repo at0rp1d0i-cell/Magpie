@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "../utils/tauri";
 import { SendHorizontal } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface Message {
   id: string;
@@ -24,6 +25,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -53,6 +55,18 @@ export default function ChatPage() {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiMsg]);
+      
+      // Auto-Routing: if JSON output is detected (intent finalized)
+      if (reply.includes("```json")) {
+        setTimeout(async () => {
+          try {
+            await invoke("trigger_fetch_cycle");
+            navigate("/dashboard");
+          } catch (err) {
+            console.error(err);
+          }
+        }, 1500); // Wait closely before jumping to dashboard
+      }
     } catch (e: any) {
       console.error("Chat error:", e);
       const errorMsg: Message = {
