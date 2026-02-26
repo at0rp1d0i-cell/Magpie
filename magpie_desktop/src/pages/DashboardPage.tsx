@@ -12,12 +12,18 @@ function extractPrice(priceInfo: string): number {
 // Format display string for the right column based on vehicle type
 function formatPriceDisplay(ticket: any): string {
   if (ticket.vehicle_type === "flight") {
-    return ticket.price_info; // "￥420" — already good
+    return ticket.price_info; // "￥420"
   }
-  // For trains: "二等座:有¦一等座:无¦无座:1" → show first non-empty seat availability
+  // For trains: "￥599.0 ¦ 二等座:有 ¦ 一等座:无"
   const parts = ticket.price_info.split("¦");
   if (parts.length > 0) {
-    return parts[0]; // e.g. "二等座:有"
+    if (parts[0].includes("暂无价格")) {
+       return (parts[1] || parts[0]).trim(); // Fallback to "二等座:有"
+    } else {
+       // parts[0] is "￥599.0 ", parts[1] is " 二等座:有 "
+       const availability = parts[1]?.split(":")[1]?.trim() || "";
+       return availability ? `${parts[0].trim()} (${availability})` : parts[0].trim();
+    }
   }
   return ticket.price_info;
 }
@@ -55,8 +61,8 @@ export default function DashboardPage() {
   const flights = displayTickets.filter((t: any) => t.vehicle_type === "flight");
   const trains = displayTickets.filter((t: any) => t.vehicle_type === "train");
   
-  // Only compute cheapest from tickets that actually have price data (flights)
-  const pricedTickets = flights.filter((t) => extractPrice(t.price_info) > 0);
+  // Only compute cheapest from tickets that actually have price data (both flights and trains)
+  const pricedTickets = displayTickets.filter((t) => extractPrice(t.price_info) > 0);
   const cheapest = pricedTickets.length > 0
     ? [...pricedTickets].sort((a, b) => extractPrice(a.price_info) - extractPrice(b.price_info))[0]
     : null;
