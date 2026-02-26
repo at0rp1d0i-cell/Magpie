@@ -23,9 +23,29 @@ pub struct StationInfo {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UserConfig {
     pub persona: String,
+    
+    // One-way or round-trip
+    #[serde(default = "default_trip_type")]
+    pub trip_type: String, // "one_way" | "round_trip"
+    
     pub time_window_start: String,
     pub time_window_end: String,
+    
+    // Optional return window
+    pub return_time_window_start: Option<String>,
+    pub return_time_window_end: Option<String>,
+    
+    #[serde(default = "default_passenger_count")]
+    pub passenger_count: i32,
+
     pub departure: StationInfo,
     pub destinations: Vec<StationInfo>,
     pub budget_cap: i32,
+}
+
+fn default_trip_type() -> String {
+    "one_way".to_string()
+}
+fn default_passenger_count() -> i32 {
+    1
 }

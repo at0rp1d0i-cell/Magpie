@@ -44,8 +44,12 @@ pub async fn start_background_task(trigger: Arc<Notify>, app: AppHandle) {
                 );
                 UserConfig {
                     persona: "leisure".to_string(),
+                    trip_type: "one_way".to_string(),
                     time_window_start: Local::now().format("%Y-%m-%d").to_string(),
                     time_window_end: Local::now().format("%Y-%m-%d").to_string(),
+                    return_time_window_start: None,
+                    return_time_window_end: None,
+                    passenger_count: 1,
                     departure: StationInfo {
                         city: "北京".to_string(),
                         train_code: "BJP".to_string(),
@@ -82,40 +86,96 @@ pub async fn start_background_task(trigger: Arc<Notify>, app: AppHandle) {
             continue;
         }
 
-        let from_train = &config.departure.train_code;
-        let to_train = &config.destinations[0].train_code;
+        struct TripLeg {
+            from_train: String,
+            to_train: String,
+            from_flight: String,
+            to_flight: String,
+            start_date: NaiveDate,
+            end_date: NaiveDate,
+        }
 
-        let from_flight = &config.departure.flight_code;
-        let to_flight = &config.destinations[0].flight_code;
-
-        let mut omni_tickets = Vec::new();
-        
+        let mut legs = Vec::new();
         let start_date = NaiveDate::parse_from_str(&config.time_window_start, "%Y-%m-%d").unwrap_or_else(|_| Local::now().naive_local().date());
         let end_date = NaiveDate::parse_from_str(&config.time_window_end, "%Y-%m-%d").unwrap_or(start_date);
         
-        let mut target_dates = Vec::new();
-        let mut current_date = start_date;
-        while current_date <= end_date && target_dates.len() < 30 {
-            target_dates.push(current_date);
-            current_date += ChronoDuration::days(1);
+        legs.push(TripLeg {
+            from_train: config.departure.train_code.clone(),
+            to_train: config.destinations[0].train_code.clone(),
+            from_flight: config.departure.flight_code.clone(),
+            to_flight: config.destinations[0].flight_code.clone(),
+            start_date,
+            end_date,
+        });
+
+        if config.trip_type == "round_trip" {
+            if let (Some(ret_start), Some(ret_end)) = (&config.return_time_window_start, &config.return_time_window_end) {
+                let r_start = NaiveDate::parse_from_str(ret_start, "%Y-%m-%d").unwrap_or(end_date);
+                let r_end = NaiveDate::parse_from_str(ret_end, "%Y-%m-%d").unwrap_or(r_start);
+                legs.push(TripLeg {
+                    from_train: config.destinations[0].train_code.clone(),
+                    to_train: config.departure.train_code.clone(),
+                    from_flight: config.destinations[0].flight_code.clone(),
+                    to_flight: config.departure.flight_code.clone(),
+                    start_date: r_start,
+                    end_date: r_end,
+                });
+            }
         }
 
+        let mut omni_tickets = Vec::new();
         let today = Local::now().naive_local().date();
 
-        for date_obj in target_dates {
-            let days_ahead = (date_obj - today).num_days();
-            if days_ahead < 0 {
-                continue; // Skip past dates
+        for leg in legs {
+            let mut target_dates = Vec::new();
+            let mut current_date = leg.start_date;
+            while current_date <= leg.end_date && target_dates.len() < 30 {
+                target_dates.push(current_date);
+                current_date += ChronoDuration::days(1);
             }
-            let date_str = date_obj.format("%Y-%m-%d").to_string();
 
-            // Train fetching
-            if days_ahead < 15 {
+            for date_obj in target_dates {
+                let days_ahead = (date_obj - today).num_days();
+                if days_ahead < 0 {
+                    continue; // Skip past dates
+                }
+                let date_str = date_obj.format("%Y-%m-%d").to_string();
+
+                // Train fetching
+                if days_ahead < 15 {
+                    println!(
+                        "[{}] ⏳ Cycle: Calling Native Rust Agent for Train {} -> {} on {} with Budget Cap ￥{}...",
+                        now, leg.from_train, leg.to_train, date_str, config.budget_cap
+                    );
+                    match query_12306(&date_str, &leg.from_train, &leg.to_train).await {
+                        Ok(tickets) => {
+                            let mut inserted = 0;
+                            for t in &tickets {
+                                if t.booking_status == "Y" {
+                                    omni_tickets.push(t.clone());
+                                    if db::insert_ticket(&conn, t, &now, &date_str).is_ok() {
+                                        inserted += 1;
+                                    }
+                                }
+                            }
+                            println!(
+                                "✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.",
+                                tickets.len(), inserted
+                            );
+                        }
+                        Err(e) => eprintln!("❌ Train Cycle Failed: {}", e),
+                    }
+                } else {
+                    println!("[{}] 🚆 Skipping train query for {} (beyond 15-day 12306 presale threshold).", now, date_str);
+                }
+
+                // Flight fetching
                 println!(
-                    "[{}] ⏳ Cycle: Calling Native Rust Agent for Train {} -> {} on {} with Budget Cap ￥{}...",
-                    now, from_train, to_train, date_str, config.budget_cap
+                    "[{}] ⏳ Cycle: Calling Native Rust Agent for Flight {} -> {} on {}...",
+                    now, leg.from_flight, leg.to_flight, date_str
                 );
-                match query_12306(&date_str, from_train, to_train).await {
+
+                match query_variflight(&date_str, &leg.from_flight, &leg.to_flight).await {
                     Ok(tickets) => {
                         let mut inserted = 0;
                         for t in &tickets {
@@ -127,39 +187,12 @@ pub async fn start_background_task(trigger: Arc<Notify>, app: AppHandle) {
                             }
                         }
                         println!(
-                            "✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.",
+                            "✅ Cycle Complete: Received {} flights, inserted {} valid records to SQLite.",
                             tickets.len(), inserted
                         );
                     }
-                    Err(e) => eprintln!("❌ Train Cycle Failed: {}", e),
+                    Err(e) => eprintln!("❌ Flight Cycle Failed: {}", e),
                 }
-            } else {
-                println!("[{}] 🚆 Skipping train query for {} (beyond 15-day 12306 presale threshold).", now, date_str);
-            }
-
-            // Flight fetching
-            println!(
-                "[{}] ⏳ Cycle: Calling Native Rust Agent for Flight {} -> {} on {}...",
-                now, from_flight, to_flight, date_str
-            );
-
-            match query_variflight(&date_str, from_flight, to_flight).await {
-                Ok(tickets) => {
-                    let mut inserted = 0;
-                    for t in &tickets {
-                        if t.booking_status == "Y" {
-                            omni_tickets.push(t.clone());
-                            if db::insert_ticket(&conn, t, &now, &date_str).is_ok() {
-                                inserted += 1;
-                            }
-                        }
-                    }
-                    println!(
-                        "✅ Cycle Complete: Received {} flights, inserted {} valid records to SQLite.",
-                        tickets.len(), inserted
-                    );
-                }
-                Err(e) => eprintln!("❌ Flight Cycle Failed: {}", e),
             }
         }
 
