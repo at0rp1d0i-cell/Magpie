@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
+    conn.execute("PRAGMA journal_mode=WAL;", [])?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS omni_tickets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

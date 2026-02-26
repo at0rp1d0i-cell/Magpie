@@ -76,7 +76,10 @@ export default function DashboardPage() {
           <p className="mt-1 text-xs text-zinc-500">{new Date().toLocaleDateString("zh-CN")} · 后台 daemon 运行中 ({daemonStatus})</p>
         </div>
         <button 
-          onClick={() => setPulse((p) => !p)} 
+          onClick={() => {
+            setPulse((p) => !p);
+            invoke("trigger_fetch_cycle").catch((e) => console.error("Trigger fetch failed:", e));
+          }} 
           className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 text-xs font-medium text-zinc-600 shadow-sm transition-all hover:bg-slate-50 hover:text-zinc-900 active:scale-95"
         >
           <RefreshCw className="h-3.5 w-3.5 stroke-[2.5px]" />

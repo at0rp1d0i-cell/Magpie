@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio::time::{sleep, Duration};
+use tauri::{AppHandle, Manager};
 
 fn load_user_config(path: &PathBuf) -> Result<UserConfig, Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
@@ -15,19 +16,12 @@ fn load_user_config(path: &PathBuf) -> Result<UserConfig, Box<dyn std::error::Er
     Ok(config)
 }
 
-pub async fn start_background_task(trigger: Arc<Notify>) {
+pub async fn start_background_task(trigger: Arc<Notify>, app: AppHandle) {
     println!("🐦 Magpie Desktop - High-Frequency Dispatcher Started");
 
-    let mut db_path = env::current_dir().unwrap_or_default();
-    // Navigate upwards just like the original logic, or strictly use current_dir relative to binary.
-    // In Tauri dev mode, current_dir is usually `src-tauri`, but the data dir was mapped to Workspace/Magpie/data.
-    // Let's ensure data dir resolves safely.
-    if db_path.ends_with("src-tauri") {
-        db_path.pop(); // map to magpie_desktop
-        db_path.pop(); // map to Magpie
-    } // else we are packaged app, data is next to binary usually (or should use tauri appDataDir ideally)
+    let app_dir = app.path().app_data_dir().unwrap_or_else(|_| env::current_dir().unwrap());
 
-    let data_dir = db_path.join("data");
+    let data_dir = app_dir.join("data");
     let _ = std::fs::create_dir_all(&data_dir);
     let db_file = data_dir.join("tickets.db");
     let config_file = data_dir.join("user_config.json");
@@ -35,7 +29,7 @@ pub async fn start_background_task(trigger: Arc<Notify>) {
     let conn = db::init_db(&db_file).expect("Failed to initialize database");
     println!("📦 Database initialized at: {:?}", db_file);
 
-    let env_path = db_path.join(".env");
+    let env_path = app_dir.join(".env");
     let _ = dotenv::from_path(env_path);
 
     loop {
@@ -67,6 +61,16 @@ pub async fn start_background_task(trigger: Arc<Notify>) {
             }
         };
 
+        let fetch_interval = if config.persona.to_lowercase() == "business" {
+            println!("\n[Intent Strategy] 🧑‍💼 Persona: Business -> Active polling every 60s.");
+            Duration::from_secs(60)
+        } else {
+            println!(
+                "\n[Intent Strategy] 🍹 Persona: Leisure -> Winter mode polling every 10800s (3 hours)."
+            );
+            Duration::from_secs(10800)
+        };
+
         if config.destinations.is_empty() {
             println!("⚠️ No destinations configured (destinations array is empty). Skipping fetch cycle.");
             tokio::select! {
@@ -83,16 +87,6 @@ pub async fn start_background_task(trigger: Arc<Notify>) {
 
         let from_flight = &config.departure.flight_code;
         let to_flight = &config.destinations[0].flight_code;
-
-        let fetch_interval = if config.persona.to_lowercase() == "business" {
-            println!("\n[Intent Strategy] 🧑‍💼 Persona: Business -> Active polling every 60s.");
-            Duration::from_secs(60)
-        } else {
-            println!(
-                "\n[Intent Strategy] 🍹 Persona: Leisure -> Winter mode polling every 10800s (3 hours)."
-            );
-            Duration::from_secs(10800)
-        };
 
         let mut omni_tickets = Vec::new();
         

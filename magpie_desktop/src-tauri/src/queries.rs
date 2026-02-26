@@ -1,14 +1,12 @@
 use rusqlite::Connection;
 use std::env;
 
+use tauri::{AppHandle, Manager};
+
 /// Read latest tickets from SQLite (tickets fetched within last 15 minutes)
-pub fn fetch_latest_tickets_from_db() -> Result<Vec<crate::models::OmniTicket>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut db_path = env::current_dir().unwrap_or_default();
-    if db_path.ends_with("src-tauri") {
-        db_path.pop();
-        db_path.pop();
-    }
-    let data_dir = db_path.join("data");
+pub fn fetch_latest_tickets_from_db(app: &AppHandle) -> Result<Vec<crate::models::OmniTicket>, Box<dyn std::error::Error + Send + Sync>> {
+    let app_dir = app.path().app_data_dir().unwrap_or_else(|_| env::current_dir().unwrap());
+    let data_dir = app_dir.join("data");
     let db_file = data_dir.join("tickets.db");
 
     if !db_file.exists() {
@@ -48,12 +46,39 @@ pub fn fetch_latest_tickets_from_db() -> Result<Vec<crate::models::OmniTicket>, 
 }
 
 #[tauri::command]
-pub async fn get_latest_tickets() -> Result<Vec<crate::models::OmniTicket>, String> {
-    fetch_latest_tickets_from_db().map_err(|e| e.to_string())
+pub async fn get_latest_tickets(app: tauri::AppHandle) -> Result<Vec<crate::models::OmniTicket>, String> {
+    fetch_latest_tickets_from_db(&app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_daemon_status() -> Result<String, String> {
-    // Simplified status representation
-    Ok("running".to_string())
+pub async fn get_daemon_status(app: tauri::AppHandle) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().unwrap_or_else(|_| env::current_dir().unwrap());
+    let db_file = app_dir.join("data").join("tickets.db");
+
+    if !db_file.exists() {
+        return Ok("Idle (No DB)".to_string());
+    }
+
+    let conn = match Connection::open(&db_file) {
+        Ok(c) => c,
+        Err(_) => return Ok("Active (DB Locked)".to_string()),
+    };
+
+    let mut stmt = match conn.prepare("SELECT fetch_time FROM omni_tickets ORDER BY fetch_time DESC LIMIT 1") {
+        Ok(s) => s,
+        Err(_) => return Ok("Active (Query Error)".to_string()),
+    };
+
+    let mut rows = match stmt.query([]) {
+        Ok(r) => r,
+        Err(_) => return Ok("Active (Query Error)".to_string()),
+    };
+
+    if let Ok(Some(row)) = rows.next() {
+        if let Ok(fetch_time) = row.get::<_, String>(0) {
+            return Ok(format!("同步于 {}", fetch_time));
+        }
+    }
+
+    Ok("Waiting for first cycle".to_string())
 }

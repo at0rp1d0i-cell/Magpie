@@ -21,22 +21,18 @@ pub async fn run_decision_engine(
 
         let mut has_valid_price = false;
         let pre_matches: Vec<_> = re.captures_iter(price_str).collect();
-        if pre_matches.is_empty() {
-            valid_tickets.push(t.clone());
-        } else {
-            for cap in pre_matches {
-                if let Some(m) = cap.get(1) {
-                    if let Ok(price) = m.as_str().parse::<f64>() {
-                        if price <= budget_cap as f64 {
-                            has_valid_price = true;
-                            break;
-                        }
+        for cap in pre_matches {
+            if let Some(m) = cap.get(1) {
+                if let Ok(price) = m.as_str().parse::<f64>() {
+                    if price <= budget_cap as f64 {
+                        has_valid_price = true;
+                        break;
                     }
                 }
             }
-            if has_valid_price {
-                valid_tickets.push(t.clone());
-            }
+        }
+        if has_valid_price {
+            valid_tickets.push(t.clone());
         }
     }
 
@@ -80,13 +76,16 @@ pub async fn run_decision_engine(
 
     let deepseek_url =
         env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
+    
+    let deepseek_model = 
+        env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
 
     let client = Client::builder().build()?;
 
-    println!("[Debug] Sending prompt to DeepSeek V3.2...");
+    println!("[Debug] Sending prompt to {}...", deepseek_model);
 
     let body = json!({
-        "model": "deepseek-chat",
+        "model": deepseek_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}

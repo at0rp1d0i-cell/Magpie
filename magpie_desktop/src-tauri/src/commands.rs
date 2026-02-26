@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -27,16 +28,11 @@ pub struct AppConfig {
 /// Wrapped in Mutex for thread-safe access from IPC commands.
 pub struct ChatState {
     pub history: Vec<ChatMessage>,
-}
-
-impl Default for ChatState {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub history_file: PathBuf,
 }
 
 impl ChatState {
-    pub fn new() -> Self {
+    pub fn new(history_file: PathBuf) -> Self {
         Self {
             history: vec![ChatMessage {
                 role: "system".to_string(),
@@ -76,36 +72,24 @@ impl ChatState {
                 - 如果用户信息不全，永远用追问代替拒绝。"
                     .to_string(),
             }],
+            history_file,
         }
     }
-    pub fn load_or_default() -> Self {
-        let mut db_path = env::current_dir().unwrap_or_default();
-        if db_path.ends_with("src-tauri") {
-            db_path.pop();
-            db_path.pop();
-        }
-        let history_file = db_path.join("data").join("chat_history.json");
-        
+    pub fn load_or_default(history_file: PathBuf) -> Self {
         if let Ok(content) = fs::read_to_string(&history_file) {
             if let Ok(history) = serde_json::from_str::<Vec<ChatMessage>>(&content) {
                 if !history.is_empty() {
-                    return Self { history };
+                    return Self { history, history_file };
                 }
             }
         }
-        Self::new()
+        Self::new(history_file)
     }
 
     pub fn save_to_disk(&self) {
-        let mut db_path = env::current_dir().unwrap_or_default();
-        if db_path.ends_with("src-tauri") {
-            db_path.pop();
-            db_path.pop();
-        }
-        let history_file = db_path.join("data").join("chat_history.json");
-        let _ = fs::create_dir_all(history_file.parent().unwrap());
+        let _ = fs::create_dir_all(self.history_file.parent().unwrap());
         if let Ok(json_str) = serde_json::to_string(&self.history) {
-            let _ = fs::write(&history_file, json_str);
+            let _ = fs::write(&self.history_file, json_str);
         }
     }
 }
@@ -156,6 +140,7 @@ pub async fn call_deepseek_chat(
 pub async fn chat_send_message(
     msg: String,
     state: tauri::State<'_, Mutex<ChatState>>,
+    app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     let history = {
         let mut chat = state.lock().map_err(|e| e.to_string())?;
@@ -182,12 +167,8 @@ pub async fn chat_send_message(
                     let mut json_str = &reply[json_start + 7..json_end];
                     json_str = json_str.trim();
                     
-                    let mut db_path = env::current_dir().unwrap_or_default();
-                    if db_path.ends_with("src-tauri") {
-                        db_path.pop();
-                        db_path.pop();
-                    }
-                    let config_file = db_path.join("data").join("user_config.json");
+                    let app_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| env::current_dir().unwrap());
+                    let config_file = app_dir.join("data").join("user_config.json");
                     let _ = std::fs::create_dir_all(config_file.parent().unwrap());
                     if let Ok(_) = std::fs::write(&config_file, json_str) {
                         println!("⚡ 成功拦截 AI 出行配置并落盘至 {:?}", config_file);
@@ -230,13 +211,9 @@ pub fn clear_chat_history(state: tauri::State<'_, Mutex<ChatState>>) -> Result<(
 
 /// Read the user_config.json that was saved by chat completion
 #[tauri::command]
-pub async fn get_user_plan() -> Result<Value, String> {
-    let mut db_path = env::current_dir().unwrap_or_default();
-    if db_path.ends_with("src-tauri") {
-        db_path.pop();
-        db_path.pop();
-    }
-    let config_file = db_path.join("data").join("user_config.json");
+pub async fn get_user_plan(app_handle: tauri::AppHandle) -> Result<Value, String> {
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| env::current_dir().unwrap());
+    let config_file = app_dir.join("data").join("user_config.json");
     
     if !config_file.exists() {
         return Ok(Value::Null);
@@ -251,18 +228,14 @@ pub async fn get_user_plan() -> Result<Value, String> {
     Ok(parsed)
 }
 
-fn get_env_path() -> PathBuf {
-    let mut path = env::current_dir().unwrap_or_default();
-    if path.ends_with("src-tauri") {
-        path.pop();
-        path.pop();
-    }
-    path.join(".env")
+fn get_env_path(app_handle: &tauri::AppHandle) -> PathBuf {
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| env::current_dir().unwrap());
+    app_dir.join(".env")
 }
 
 #[tauri::command]
-pub async fn get_app_config() -> Result<AppConfig, String> {
-    let env_path = get_env_path();
+pub async fn get_app_config(app_handle: tauri::AppHandle) -> Result<AppConfig, String> {
+    let env_path = get_env_path(&app_handle);
     let _ = dotenvy::from_filename(&env_path).ok();
 
     Ok(AppConfig {
@@ -276,8 +249,8 @@ pub async fn get_app_config() -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-pub async fn save_app_config(config: AppConfig) -> Result<String, String> {
-    let env_path = get_env_path();
+pub async fn save_app_config(config: AppConfig, app_handle: tauri::AppHandle) -> Result<String, String> {
+    let env_path = get_env_path(&app_handle);
     
     let content = format!(
         "DEEPSEEK_API_KEY={}\n\

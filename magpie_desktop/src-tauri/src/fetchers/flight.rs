@@ -38,7 +38,7 @@ pub async fn query_variflight(
 
     if let Some(data_str) = json.get("data").and_then(|v| v.as_str()) {
         let re = Regex::new(
-            r"航班号：([A-Z0-9]+)，起飞时间：([\d\-: ]+)，到达时间：([\d\-: ]+)，耗时：([^，]+)，.*?价格：(\d+)元",
+            r"航班号[：:]\s*([A-Z0-9]+).*?起飞时间[：:]\s*([\d\-: ]+).*?到达时间[：:]\s*([\d\-: ]+).*?耗时[：:]\s*([^，,\s]+).*?价格[：:]\s*(\d+)元",
         )?;
 
         for cap in re.captures_iter(data_str) {
@@ -70,6 +70,10 @@ pub async fn query_variflight(
             };
 
             tickets.push(ticket);
+        }
+
+        if tickets.is_empty() && !data_str.trim().is_empty() {
+            eprintln!("[Warning] VariFlight returned data but regex matched 0 tickets. Data snippet: {:.150}", data_str);
         }
     }
 

@@ -10,6 +10,7 @@ pub mod queries;
 use commands::ChatState;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+use tauri::Manager;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -23,7 +24,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(Mutex::new(ChatState::load_or_default()))
         .manage(fetch_trigger)
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -38,10 +38,19 @@ pub fn run() {
             queries::get_latest_tickets,
             queries::get_daemon_status
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            
+            // Resolve path safely using Tauri AppHandle to support packaged builds
+            let app_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| std::env::current_dir().unwrap());
+            let history_file = app_dir.join("data").join("chat_history.json");
+            
+            // Feed the path into ChatState and mount it
+            app.manage(Mutex::new(ChatState::load_or_default(history_file)));
+
             // Spawn the Magpie backend daemon alongside Tauri UI!
             tauri::async_runtime::spawn(async move {
-                daemon::start_background_task(fetch_trigger_for_daemon).await;
+                daemon::start_background_task(fetch_trigger_for_daemon, app_handle).await;
             });
             Ok(())
         })
