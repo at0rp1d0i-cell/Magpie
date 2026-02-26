@@ -78,6 +78,36 @@ impl ChatState {
             }],
         }
     }
+    pub fn load_or_default() -> Self {
+        let mut db_path = env::current_dir().unwrap_or_default();
+        if db_path.ends_with("src-tauri") {
+            db_path.pop();
+            db_path.pop();
+        }
+        let history_file = db_path.join("data").join("chat_history.json");
+        
+        if let Ok(content) = fs::read_to_string(&history_file) {
+            if let Ok(history) = serde_json::from_str::<Vec<ChatMessage>>(&content) {
+                if !history.is_empty() {
+                    return Self { history };
+                }
+            }
+        }
+        Self::new()
+    }
+
+    pub fn save_to_disk(&self) {
+        let mut db_path = env::current_dir().unwrap_or_default();
+        if db_path.ends_with("src-tauri") {
+            db_path.pop();
+            db_path.pop();
+        }
+        let history_file = db_path.join("data").join("chat_history.json");
+        let _ = fs::create_dir_all(history_file.parent().unwrap());
+        if let Ok(json_str) = serde_json::to_string(&self.history) {
+            let _ = fs::write(&history_file, json_str);
+        }
+    }
 }
 
 pub async fn call_deepseek_chat(
@@ -133,6 +163,7 @@ pub async fn chat_send_message(
             role: "user".to_string(),
             content: msg,
         });
+        chat.save_to_disk();
         chat.history.clone()
     };
 
@@ -143,6 +174,7 @@ pub async fn chat_send_message(
                 role: "assistant".to_string(),
                 content: reply.clone(),
             });
+            chat.save_to_disk();
 
             // If the reply contains a JSON block for user config, extract and save it!
             if let Some(json_start) = reply.find("```json") {
@@ -191,6 +223,7 @@ pub fn clear_chat_history(state: tauri::State<'_, Mutex<ChatState>>) -> Result<(
     // Preserve the system prompt (index 0)
     if chat.history.len() > 1 {
         chat.history.truncate(1);
+        chat.save_to_disk();
     }
     Ok(())
 }

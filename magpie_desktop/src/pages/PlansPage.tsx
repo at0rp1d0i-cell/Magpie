@@ -110,7 +110,7 @@ export default function PlansPage() {
 
         {/* Create new plan button - now with real navigation */}
         <button
-          onClick={() => navigate("/chat")}
+          onClick={() => navigate("/")}
           className="group mt-8 flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-200 bg-slate-50 py-10 transition-colors hover:border-violet-300 hover:bg-violet-50 focus:outline-none"
         >
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-400 transition-colors group-hover:bg-violet-100 group-hover:text-violet-600">

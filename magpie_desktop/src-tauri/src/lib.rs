@@ -23,7 +23,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(Mutex::new(ChatState::new()))
+        .manage(Mutex::new(ChatState::load_or_default()))
         .manage(fetch_trigger)
         .invoke_handler(tauri::generate_handler![
             greet,

@@ -2,7 +2,7 @@ use crate::db;
 use crate::decision::run_decision_engine;
 use crate::fetchers::{flight::query_variflight, train::query_12306};
 use crate::models::{StationInfo, UserConfig};
-use chrono::Local;
+use chrono::{Local, NaiveDate, Duration as ChronoDuration};
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -67,13 +67,22 @@ pub async fn start_background_task(trigger: Arc<Notify>) {
             }
         };
 
+        if config.destinations.is_empty() {
+            println!("⚠️ No destinations configured (destinations array is empty). Skipping fetch cycle.");
+            tokio::select! {
+                _ = sleep(fetch_interval) => {},
+                _ = trigger.notified() => {
+                    println!("⚡ Instant Fetch TriggerReceived! Waking up immediately...");
+                }
+            }
+            continue;
+        }
+
         let from_train = &config.departure.train_code;
         let to_train = &config.destinations[0].train_code;
 
         let from_flight = &config.departure.flight_code;
         let to_flight = &config.destinations[0].flight_code;
-
-        let date = &config.time_window_start;
 
         let fetch_interval = if config.persona.to_lowercase() == "business" {
             println!("\n[Intent Strategy] 🧑‍💼 Persona: Business -> Active polling every 60s.");
@@ -86,59 +95,86 @@ pub async fn start_background_task(trigger: Arc<Notify>) {
         };
 
         let mut omni_tickets = Vec::new();
-
-        println!(
-            "[{}] ⏳ Cycle: Calling Native Rust Agent for Train {} -> {} on {} with Budget Cap ￥{}...",
-            now, from_train, to_train, date, config.budget_cap
-        );
-
-        match query_12306(date, from_train, to_train).await {
-            Ok(tickets) => {
-                let mut inserted = 0;
-                for t in &tickets {
-                    if t.booking_status == "Y" {
-                        omni_tickets.push(t.clone());
-                        if db::insert_ticket(&conn, t, &now, date).is_ok() {
-                            inserted += 1;
-                        }
-                    }
-                }
-                println!(
-                    "✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.",
-                    tickets.len(),
-                    inserted
-                );
-            }
-            Err(e) => eprintln!("❌ Train Cycle Failed: {}", e),
+        
+        let start_date = NaiveDate::parse_from_str(&config.time_window_start, "%Y-%m-%d").unwrap_or_else(|_| Local::now().naive_local().date());
+        let end_date = NaiveDate::parse_from_str(&config.time_window_end, "%Y-%m-%d").unwrap_or(start_date);
+        
+        let mut target_dates = Vec::new();
+        let mut current_date = start_date;
+        while current_date <= end_date && target_dates.len() < 30 {
+            target_dates.push(current_date);
+            current_date += ChronoDuration::days(1);
         }
 
-        println!(
-            "[{}] ⏳ Cycle: Calling Native Rust Agent for Flight {} -> {} on {}...",
-            now, from_flight, to_flight, date
-        );
+        let today = Local::now().naive_local().date();
 
-        match query_variflight(date, from_flight, to_flight).await {
-            Ok(tickets) => {
-                let mut inserted = 0;
-                for t in &tickets {
-                    if t.booking_status == "Y" {
-                        omni_tickets.push(t.clone());
-                        if db::insert_ticket(&conn, t, &now, date).is_ok() {
-                            inserted += 1;
+        for date_obj in target_dates {
+            let days_ahead = (date_obj - today).num_days();
+            if days_ahead < 0 {
+                continue; // Skip past dates
+            }
+            let date_str = date_obj.format("%Y-%m-%d").to_string();
+
+            // Train fetching
+            if days_ahead < 15 {
+                println!(
+                    "[{}] ⏳ Cycle: Calling Native Rust Agent for Train {} -> {} on {} with Budget Cap ￥{}...",
+                    now, from_train, to_train, date_str, config.budget_cap
+                );
+                match query_12306(&date_str, from_train, to_train).await {
+                    Ok(tickets) => {
+                        let mut inserted = 0;
+                        for t in &tickets {
+                            if t.booking_status == "Y" {
+                                omni_tickets.push(t.clone());
+                                if db::insert_ticket(&conn, t, &now, &date_str).is_ok() {
+                                    inserted += 1;
+                                }
+                            }
+                        }
+                        println!(
+                            "✅ Cycle Complete: Received {} trains, inserted {} valid records to SQLite.",
+                            tickets.len(), inserted
+                        );
+                    }
+                    Err(e) => eprintln!("❌ Train Cycle Failed: {}", e),
+                }
+            } else {
+                println!("[{}] 🚆 Skipping train query for {} (beyond 15-day 12306 presale threshold).", now, date_str);
+            }
+
+            // Flight fetching
+            println!(
+                "[{}] ⏳ Cycle: Calling Native Rust Agent for Flight {} -> {} on {}...",
+                now, from_flight, to_flight, date_str
+            );
+
+            match query_variflight(&date_str, from_flight, to_flight).await {
+                Ok(tickets) => {
+                    let mut inserted = 0;
+                    for t in &tickets {
+                        if t.booking_status == "Y" {
+                            omni_tickets.push(t.clone());
+                            if db::insert_ticket(&conn, t, &now, &date_str).is_ok() {
+                                inserted += 1;
+                            }
                         }
                     }
+                    println!(
+                        "✅ Cycle Complete: Received {} flights, inserted {} valid records to SQLite.",
+                        tickets.len(), inserted
+                    );
                 }
-                println!(
-                    "✅ Cycle Complete: Received {} flights, inserted {} valid records to SQLite.",
-                    tickets.len(),
-                    inserted
-                );
+                Err(e) => eprintln!("❌ Flight Cycle Failed: {}", e),
             }
-            Err(e) => eprintln!("❌ Flight Cycle Failed: {}", e),
         }
 
-        if let Err(e) = run_decision_engine(&omni_tickets, config.budget_cap).await {
-            eprintln!("❌ Decision Engine Failed: {}", e);
+        if !omni_tickets.is_empty() {
+            if let Err(e) = run_decision_engine(&omni_tickets, config.budget_cap).await {
+                eprintln!("❌ Decision Engine Failed: {}", e);
+            }
+        } else {
+            println!("⚠️ No valid tickets found across target dates to run Decision Engine.");
         }
 
         println!("💤 Sleeping for {} seconds...\n", fetch_interval.as_secs());
