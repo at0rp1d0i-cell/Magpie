@@ -6,10 +6,14 @@ import { useNavigate } from "react-router-dom";
 
 interface PlanData {
   persona?: string;
+  trip_type?: string;
+  passenger_count?: number;
   departure?: { city?: string; train_code?: string; flight_code?: string };
   destinations?: { city?: string; train_code?: string; flight_code?: string }[];
   time_window_start?: string;
   time_window_end?: string;
+  return_time_window_start?: string;
+  return_time_window_end?: string;
   budget_cap?: number;
 }
 
@@ -61,9 +65,16 @@ export default function PlansPage() {
                       <Navigation className="h-5 w-5" strokeWidth={2.5} />
                     </span>
                     <div>
-                      <h3 className="text-base font-bold text-zinc-900">{plan.departure?.city} 到 {dest.city}</h3>
-                      <p className="mt-0.5 text-xs font-medium text-zinc-500">
-                        {plan.time_window_start} ~ {plan.time_window_end}
+                      <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                        {plan.departure?.city} 
+                        {plan.trip_type === "round_trip" ? <span className="text-violet-500">↔</span> : <span className="text-zinc-300">→</span>} 
+                        {dest.city}
+                      </h3>
+                      <p className="mt-0.5 text-xs font-medium text-zinc-500 flex flex-col gap-0.5">
+                        <span>去程: {plan.time_window_start} ~ {plan.time_window_end}</span>
+                        {plan.trip_type === "round_trip" && plan.return_time_window_start && (
+                          <span className="text-violet-600/80">返程: {plan.return_time_window_start} ~ {plan.return_time_window_end}</span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -77,7 +88,12 @@ export default function PlansPage() {
                 
                 <div className="grid grid-cols-3 gap-4 border-t border-zinc-100 pt-5">
                   {[
-                    { label: "预算上限", value: `￥${plan.budget_cap ?? "未设定"}` },
+                    { label: "监控预算", value: `单价￥${plan.budget_cap ?? "未设定"}` },
+                    {
+                      label: "人员规模",
+                      value: `${plan.passenger_count || 1} 人`,
+                      icon: <Briefcase className="h-4 w-4 text-zinc-400 mr-1.5" />,
+                    },
                     {
                       label: "出游画像",
                       value: plan.persona === "leisure" ? "Leisure 休闲" : "Business 差旅",
@@ -85,7 +101,6 @@ export default function PlansPage() {
                         ? <Coffee className="h-4 w-4 text-zinc-400 mr-1.5" />
                         : <Briefcase className="h-4 w-4 text-zinc-400 mr-1.5" />,
                     },
-                    { label: "轮询策略", value: plan.persona === "leisure" ? "3h / 周期" : "60s / 周期" },
                   ].map((item, i) => (
                     <div key={i} className="flex flex-col justify-center rounded-xl border border-zinc-100 bg-slate-50 px-4 py-3.5">
                       <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">{item.label}</p>
